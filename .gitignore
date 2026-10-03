@@ -9,3 +9,9 @@ __pycache__/
 .venv/
 data/
 engine/evidence/cache/
+
+# proprietary source materials and the challenge brief: never commit
+*.zip
+*.docx
+*.pdf
+source-materials/

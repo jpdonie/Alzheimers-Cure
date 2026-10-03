@@ -38,4 +38,4 @@ def render(p: dict) -> str:
 
 def check_form(rules: list[dict], form: dict, min_state: tuple = ("expert_stated", "confirmed", "hypothesized")) -> list[dict]:
     """All fired guardrails for a form. Rules without live support still fire (seeded from transcripts)."""
-    return [r for r in (evaluate(x, form) for x in rules) if r["fired"]]
+    return [r for r in (evaluate(x, form) for x in rules if not x.get("rejected")) if r["fired"]]   # a rule the expert rejected never fires

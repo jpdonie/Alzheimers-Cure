@@ -1,5 +1,5 @@
 """Thin Anthropic wrapper: usage ledger (credit tracking), cache, and graceful fallback."""
-import json, os, time, hashlib
+import json, os, threading, time, hashlib
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -14,6 +14,9 @@ FAST = "claude-haiku-4-5-20251001"
 SMART = "claude-sonnet-5-5"
 # Estimated USD per million tokens (input, output). Estimates only; check console.anthropic.com for real balance.
 PRICE = {FAST: (1.0, 5.0), SMART: (3.0, 15.0)}
+
+
+_LOCK = threading.Lock()
 
 
 class LLMUnavailable(Exception):
@@ -51,12 +54,14 @@ def complete(system: str, user: str, model: str = FAST, max_tokens: int = 800, c
     text = "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
     pin, pout = PRICE.get(model, (3.0, 15.0))
     usd = r.usage.input_tokens * pin / 1e6 + r.usage.output_tokens * pout / 1e6
-    led = _load(LEDGER, {"calls": []})
-    led["calls"].append({"t": time.time(), "model": model, "in": r.usage.input_tokens, "out": r.usage.output_tokens, "usd": usd})
-    LEDGER.write_text(json.dumps(led))
-    if cache:
-        c[key] = text
-        CACHE.write_text(json.dumps(c))
+    with _LOCK:
+        led = _load(LEDGER, {"calls": []})
+        led["calls"].append({"t": time.time(), "model": model, "in": r.usage.input_tokens, "out": r.usage.output_tokens, "usd": usd})
+        LEDGER.write_text(json.dumps(led))
+        if cache:
+            c = _load(CACHE, {})
+            c[key] = text
+            CACHE.write_text(json.dumps(c))
     return text
 
 
@@ -85,8 +90,9 @@ def vision(data_url: str, prompt: str, model: str = FAST, max_tokens: int = 120)
     except Exception as e:
         raise LLMUnavailable(str(e))
     pin, pout = PRICE.get(model, (3.0, 15.0))
-    led = _load(LEDGER, {"calls": []})
-    led["calls"].append({"t": time.time(), "model": model, "in": r.usage.input_tokens, "out": r.usage.output_tokens,
-                         "usd": r.usage.input_tokens * pin / 1e6 + r.usage.output_tokens * pout / 1e6, "kind": "vision"})
-    LEDGER.write_text(json.dumps(led))
+    with _LOCK:
+        led = _load(LEDGER, {"calls": []})
+        led["calls"].append({"t": time.time(), "model": model, "in": r.usage.input_tokens, "out": r.usage.output_tokens,
+                             "usd": r.usage.input_tokens * pin / 1e6 + r.usage.output_tokens * pout / 1e6, "kind": "vision"})
+        LEDGER.write_text(json.dumps(led))
     return "".join(b.text for b in r.content if getattr(b, "type", "") == "text").strip()

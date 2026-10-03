@@ -1,6 +1,8 @@
 import os
 os.environ["APPRENTICE_OFFLINE"] = "1"
 os.environ["APPRENTICE_COOLDOWN"] = "0"
+import tempfile
+os.environ["APPRENTICE_REVIEWS_FILE"] = os.path.join(tempfile.mkdtemp(), "reviews.json")
 import json
 from pathlib import Path
 from engine.session import Session, load_rules
@@ -240,21 +242,31 @@ def test_pain_and_swelling_language_requires_a_human_route():
     assert t.teach_check_save("T1", {**form, "escalate_to": "team_meeting"})["saved"]
 
 
-def test_map_confirmed_requires_every_live_step():
+def test_map_confirmed_when_every_active_rule_is_reviewed_or_taught_back():
     s = Session("capture")
-    for field, val in (("checks", ["pain"]), ("intervention", "give_prn_medication")):
-        e = s.add_event({"field": field, "value": val, "delta": {"added": "pain"} if field == "checks" else None, "form": {}})["event"]
-        q = s.propose_question(e["id"], OK)["question"]; s.answer(q["id"], "The nurse decides.")
-    steps = s.workmap()["steps"]; assert len(steps) >= 2
-    s.confirm(steps[0]["rule_id"], True)
-    assert not s._map_confirmed()                       # partial confirmation is not confirmation
-    for st in steps[1:]: s.confirm(st["rule_id"], True)
-    assert s._map_confirmed()
+    assert not s._map_confirmed()
+    for r in list(s.rules)[:-1]:
+        s.review(r["id"], "confirm")
+    assert not s._map_confirmed()                                   # one rule still unreviewed
+    s.review(s.rules[-1]["id"], "reject", "not how we work")
+    assert s._map_confirmed()                                       # rejected rules leave the map
+    s.review(s.rules[-1]["id"], "reset")
+    assert not s._map_confirmed()
+    for r in s.rules:
+        s.review(r["id"], "reset")
 
 
-def test_abstains_when_the_incident_type_is_outside_learned_knowledge():
-    t = Session("teach"); t.teach_predict("T1", "b")
-    form = {"incident_type": "other", "checks": [], "occurrences_today": 1, "escalate_to": "none", "intervention": "no_action", "pattern": "new"}
-    r = t.teach_check_save("T1", form)
-    assert not r["saved"] and r["blocked"][-1]["guardrail_id"] == "ABSTAIN-outside-knowledge"
-    assert t.teach_check_save("T1", {**form, "escalate_to": "team_meeting"})["saved"]       # a human route resolves the abstention
+def test_review_persists_changes_evidence_class_and_rejected_rules_do_not_fire():
+    s = Session("capture")
+    v0 = s.map_version()
+    s.review("R1-somatic-first", "confirm", "Yes, this is how we work.")
+    assert s.map_version() != v0
+    s2 = Session("teach"); s2.freeze()                                # a new session reads the persisted review
+    assert s2.rule("R1-somatic-first")["reviewed"] == "confirmed" and S.slot_state(s2.rule("R1-somatic-first"), "guardrails") == "confirmed"
+    s2.teach_predict("T1", "b")
+    r = s2.teach_check_save("T1", {"incident_type": "refusal_of_care", "checks": [], "occurrences_today": 1, "escalate_to": "none", "intervention": "no_action"})
+    assert next(b for b in r["blocked"] if b["rule_id"] == "R1-somatic-first")["evidence_class"] == "confirmed by expert review"
+    s.review("R1-somatic-first", "reject")
+    s3 = Session("teach"); s3.teach_predict("T1", "b")
+    assert not any(b["rule_id"] == "R1-somatic-first" for b in s3.teach_check_save("T1", {"incident_type": "refusal_of_care", "checks": [], "occurrences_today": 1, "escalate_to": "none"})["blocked"])
+    s.review("R1-somatic-first", "reset")

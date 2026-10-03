@@ -22,14 +22,22 @@ export type Step = {
   rationale_seed: string; exceptions: { text: string; state: string }[];
   guardrails: { text: string; state: string; expert_words: Evidence[] }[];
   escalation: string; unresolved_slots: string[]; teach_back: string; provenance: Provenance[];
-  related: Related[];
+  related: Related[]; reviewed: string; review_note: string;
   confidence: { label: string; evidence_strength: string; evidence_count: number; source_class: string; teach_back: string; slot_states: string[]; caution: string; sessions: string[] };
 };
 export type Related = { unit_id: string; session: string; subtopic: string; source_type: string; score: number; branches: string[]; caveat: string };
 export type SeededRule = {
   rule_id: string; title: string; risk: number; context: string; action: string; rationale: string; escalation: string; predicate: string; severity: string;
-  guardrails: { text: string; state: string }[]; evidence: Evidence[]; caution: string; confidence: string; related: Related[];
+  guardrails: { text: string; state: string }[]; evidence: Evidence[]; caution: string; confidence: string; related: Related[]; reviewed: string; review_note: string;
 };
+export type LearnedCard = {
+  id: string; title: string; kind: string; context: string; action: string; rationale: string; exceptions: string[]; guardrails: string[]; escalation: string[];
+  safety_critical: boolean; cbt: { formulation: boolean; targeted_action: boolean; measures_response: boolean }; units: string[]; sessions: string[];
+  evidence: { turn_id: string; span: string; unit_id: string; session: string }[]; evidence_status: string; corroboration: number;
+  proposed_predicate: { all: { field: string; op: string; value: unknown }[] } | null; contradictions: { a: string; b: string; why: string }[];
+  review: string; review_note: string; enforced: boolean;
+};
+export type LearnedMap = { cards: LearnedCard[]; agenda: { card: string; title: string; missing: string[]; ask: string }[]; report: Record<string, unknown> };
 export type Block = {
   rule_id: string; title: string; message: string; text: string; guardrail_id: string; evidence_class: string;
   trace: { field: string; op: string; expected: unknown; observed: unknown; met: boolean }[];
@@ -67,6 +75,8 @@ export const api = {
   session: (mode: "capture" | "teach") => call<{ id: string; capture_scenario: { title: string; resident: string; facts: string[]; note: string } }>("/session", { mode }),
   cases: () => call<{ capture: { title: string; resident: string; facts: string[]; note: string }; teach: { id: string; title: string }[] }>("/cases"),
   event: (e: { field: string; value?: unknown; delta?: unknown; form?: unknown }) => call<{ event: SandboxEvent; scope?: { escalate: boolean; reason: string } }>("/events", e),
+  review: (rule_id: string, decision: "confirm" | "reject" | "reset", note = "") => call<{ rule_id: string; decision: string; map_version: string }>("/review", { rule_id, decision, note }),
+  learned: () => call<LearnedMap>("/learned"),
   recording: (on: boolean) => call<{ recording: boolean }>("/recording", { on }),
   frame: (event_id: string, data_url: string) => call("/frames", { event_id, data_url }),
   question: (event_id: string, signals: Gate) => call<{ question: Question | null; reason: string; gate: Gate }>("/question", { event_id, signals }),

@@ -3,7 +3,7 @@ import json, os, time, uuid
 from copy import deepcopy
 from pathlib import Path
 
-from . import guard, scope, slots as S, llm
+from . import guard, learned, scope, slots as S, llm
 from .confidence import facets
 from .related import related
 from .mastery import Mastery
@@ -11,6 +11,17 @@ from .privacy import redact
 
 HERE = Path(__file__).resolve().parent
 DATA = HERE.parent / "data"
+
+
+def reviews_path() -> Path:
+    return Path(os.getenv("APPRENTICE_REVIEWS_FILE", DATA / "reviews.json"))
+
+
+def load_reviews() -> dict:
+    try:
+        return json.loads(reviews_path().read_text())
+    except Exception:
+        return {}
 LABEL = {"retry_later_same_carer": "retry later with the same carer", "swap_carer_or_call_psychologist": "swap carer / call the psychologist",
          "reassure_and_note": "reassure and note it", "give_prn_medication": "give PRN medication", "adjust_diet": "adjust the diet",
          "integration_plan_review": "review the integration plan", "no_action": "take no action"}
@@ -55,6 +66,7 @@ class Session:
         self.drift = drift
         self.id = nid("S"); self.mode = mode; self.t0 = time.time()
         self.rules = load_rules(); self.cases = load_cases()
+        self.reviews = load_reviews(); self._apply_reviews()
         self.events, self.questions, self.answers = [], [], []
         self.frames = {}; self.tombstones = []; self.degraded = False
         self.teachback = {}             # rule_id -> confirmed|corrected
@@ -77,6 +89,39 @@ class Session:
             (DATA / "session.json").write_text(json.dumps(self.export(), default=str))
         except Exception:
             pass
+
+    # ---------- expert review (persisted: survives restarts, applies to every new session)
+    def _apply_reviews(self):
+        """A review is a flag on the rule; slots keep their honest provenance and `slots.eff` derives the effective state."""
+        for r in self.rules:
+            for k in ("reviewed", "review_note", "rejected"):
+                r.pop(k, None)
+            rv = self.reviews.get(r["id"])
+            if rv:
+                r["reviewed"] = "confirmed" if rv["decision"] == "confirm" else "rejected"
+                r["review_note"] = rv.get("note", "")
+                r["rejected"] = rv["decision"] == "reject"
+        # accepted learned cards join as warn-level rules (human acceptance is what makes learned knowledge enforceable)
+        self.rules = [r for r in self.rules if not r.get("learned")]
+        for cid, rv in self.reviews.items():
+            if cid.startswith("LC-") and rv["decision"] == "confirm":
+                c = learned.card(cid); lr = learned.to_rule(c) if c else None
+                if lr:
+                    lr["reviewed"] = "confirmed"; lr["review_note"] = rv.get("note", ""); self.rules.append(lr)
+
+    def review(self, rule_id: str, decision: str, note: str = "") -> dict:
+        """decision: confirm | reject | reset. The reviewer is the human expert using the app (no authentication in this demo)."""
+        known = any(r["id"] == rule_id for r in self.rules) or (rule_id.startswith("LC-") and learned.card(rule_id) is not None)
+        if not known:
+            raise Conflict("unknown rule")
+        revs = load_reviews()
+        if decision == "reset":
+            revs.pop(rule_id, None)
+        else:
+            revs[rule_id] = {"decision": decision, "note": redact(note)[0][:600], "ts": self.now(), "at": time.strftime("%Y-%m-%d %H:%M")}
+        reviews_path().parent.mkdir(exist_ok=True); reviews_path().write_text(json.dumps(revs, indent=1))
+        self.reviews = revs; self._apply_reviews(); self._save()
+        return {"rule_id": rule_id, "decision": decision if decision != "reset" else "not reviewed", "map_version": self.map_version()}
 
     def _need_recording(self):
         if not self.recording:
@@ -268,14 +313,14 @@ class Session:
 
     # ---------- work map
     def _map_confirmed(self) -> bool:
-        """True only when every live step has been confirmed or corrected by the expert (no partial confirmation)."""
-        steps = self.workmap()["steps"]
-        return bool(steps) and all(st["teach_back"] in ("confirmed", "corrected") for st in steps)
+        """True when every active rule is confirmed by an expert review or by a live teach-back (rejected rules are out of the map)."""
+        active = [r for r in self.rules if not r.get("rejected") and not r.get("learned")]
+        return bool(active) and all(r.get("reviewed") == "confirmed" or self.teachback.get(r["id"]) in ("confirmed", "corrected") for r in active)
 
     def map_version(self) -> str:
         """Content hash of what Teach consumes: slot states, live items, predicates and teach-back results."""
         import hashlib
-        blob = json.dumps({"r": [{"id": r["id"], "slots": r["slots"], "p": r["predicate"]} for r in self.rules], "tb": self.teachback}, sort_keys=True, default=str)
+        blob = json.dumps({"r": [{"id": r["id"], "slots": r["slots"], "p": r["predicate"], "rv": r.get("reviewed", "")} for r in self.rules], "tb": self.teachback}, sort_keys=True, default=str)
         return hashlib.sha1(blob.encode()).hexdigest()[:8]
 
     def workmap(self) -> dict:
@@ -291,16 +336,16 @@ class Session:
                             "slot": next(q["slot"] for q in qs if q["id"] == a["question_id"])} for a in answers]
             gs = []
             for g in r["slots"]["guardrails"]:
-                gs.append({"text": g["text"], "state": g["state"],
+                gs.append({"text": g["text"], "state": S.eff(r, g["state"]),
                            "expert_words": [{"kind": "screen", **p} for p in g.get("live", [])] or self._source_evidence(r)[:1]})
             unresolved = [s for s in S.SLOTS if S.slot_state(r, s) in ("missing", "hypothesized", "conflicted")]
             steps.append({"step_id": f"STEP-{rid}", "rule_id": rid, "title": r["title"], "screen_moment": {"event_id": first["id"], "ts": first["ts"],
                           "text": first["text"], "form": first.get("form"), "frame": first["id"] in self.frames, "vision": first.get("vision")},
                           "decision": first["text"], "reason": live_quotes, "rationale_seed": r["slots"]["rationale"]["text"],
-                          "exceptions": [{"text": e["text"], "state": e["state"]} for e in r["slots"]["exceptions"]],
+                          "exceptions": [{"text": e["text"], "state": S.eff(r, e["state"])} for e in r["slots"]["exceptions"]],
                           "guardrails": gs, "escalation": r["slots"]["escalation"].get("live_text") or r["slots"]["escalation"]["text"],
                           "unresolved_slots": unresolved, "teach_back": self.teachback.get(rid, "none"),
-                          "confidence": facets(r, live_n, self.teachback.get(rid, "none")),
+                          "confidence": facets(r, live_n, self.teachback.get(rid, "none"), r.get("reviewed", "")), "reviewed": r.get("reviewed", ""), "review_note": r.get("review_note", ""),
                           "provenance": [{"kind": "screen", "event_id": q["event_id"], "ts": q["ts"]} for q in qs] +
                                         [{"kind": "transcript", "unit_id": s["unit_id"], "session": s["session"], "turn_ids": s["turn_ids"],
                                           "span": s["quote_span"], "verbatim": s["kind"] == "verbatim"} for s in r["sources"]],
@@ -309,14 +354,15 @@ class Session:
         for i, s in enumerate(steps): s["n"] = i + 1
         seeded = [{"rule_id": r["id"], "title": r["title"], "risk": r["risk"],
                    "context": r["slots"]["context"]["text"], "action": r["slots"]["action"]["text"], "rationale": r["slots"]["rationale"]["text"],
-                   "guardrails": [{"text": g["text"], "state": g["state"]} for g in r["slots"]["guardrails"]],
+                   "guardrails": [{"text": g["text"], "state": S.eff(r, g["state"])} for g in r["slots"]["guardrails"]],
                    "escalation": r["slots"]["escalation"]["text"], "predicate": guard.render(r["predicate"]), "severity": r["predicate"]["severity"],
                    "evidence": self._source_evidence(r), "caution": r.get("caution", ""),
-                   "confidence": facets(r, 0, "none")["label"], "states": S.snapshot_states([r])[r["id"]], "related": related(r)}
-                  for r in self.rules if r["id"] not in by_rule]
+                   "confidence": facets(r, 0, "none", r.get("reviewed", ""))["label"], "reviewed": r.get("reviewed", ""), "review_note": r.get("review_note", ""),
+                   "states": S.snapshot_states([r])[r["id"]], "related": related(r)}
+                  for r in self.rules if r["id"] not in by_rule and not r.get("learned")]
         asked_events = {q["event_id"] for q in self.questions if q["event_id"]}
         unexplained = [{"event_id": e["id"], "ts": e["ts"], "text": e["text"]} for e in self.events if e["id"] not in asked_events and e.get("field") != "save"]
-        return {"schema": "workmap/1", "map_version": self.map_version(), "steps": steps, "unexplained_events": unexplained, "drift": self.drift_log, "seeded_only_rules": [r["id"] for r in self.rules if r["id"] not in by_rule], "seeded_rules": seeded}
+        return {"schema": "workmap/1", "map_version": self.map_version(), "steps": steps, "unexplained_events": unexplained, "drift": self.drift_log, "seeded_only_rules": [r["id"] for r in self.rules if r["id"] not in by_rule and not r.get("learned")], "learned_active": [r["id"] for r in self.rules if r.get("learned")], "seeded_rules": seeded}
 
     @staticmethod
     def _source_evidence(r) -> list[dict]:
@@ -446,7 +492,7 @@ class Session:
         for b in blocked:
             r = self.rule(b["rule_id"]); ex = self._explain(r)
             res["blocked"].append({**b, "explain": ex, "guardrail_id": r["id"],
-                                   "evidence_class": "live expert capture" if ex["screen_moment"] else "transcript only (not yet confirmed live)"})
+                                   "evidence_class": "live expert capture" if ex["screen_moment"] else "confirmed by expert review" if r.get("reviewed") == "confirmed" else "transcript only (not yet confirmed live)"})
         sc = scope.classify(form.get("observation", ""))
         if sc["escalate"] and form.get("escalate_to") not in scope.HUMAN_ROUTES:   # fail closed on clinical language
             blocked.append({"rule_id": "SCOPE-clinical-escalation"})

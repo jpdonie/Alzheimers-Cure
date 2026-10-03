@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { LearnedMapPanel } from "@/components/LearnedMapPanel";
 import { api, explain, type Provenance, type Related, type SeededRule, type Step } from "@/lib/engine";
 
 const LABEL_COLOR: Record<string, string> = { low: "border-coral text-coral", medium: "border-amber bg-amber/20", high: "border-teal bg-teal text-white" };
@@ -12,6 +13,24 @@ function Frame({ id, form }: { id: string; form?: Record<string, unknown> }) {
       {!bad && <img src={api.frameUrl(id)} alt="Captured screen moment" className="max-h-64 rounded border border-line" onError={() => setBad(true)} />}
       {bad && <p className="text-xs text-ink/70">No frame captured (degraded mode). Form state at that moment:</p>}
       {form && <table className="text-xs"><tbody>{Object.entries(form).map(([k, v]) => <tr key={k}><td className="pr-2 font-semibold">{k}</td><td>{JSON.stringify(v)}</td></tr>)}</tbody></table>}
+    </div>
+  );
+}
+
+function ReviewBar({ rule, onChange }: { rule: SeededRule; onChange: () => void }) {
+  const [note, setNote] = useState(rule.review_note ?? "");
+  const act = async (d: "confirm" | "reject" | "reset") => { await api.review(rule.rule_id, d, note); onChange(); };
+  return (
+    <div className="mt-2 space-y-1 rounded-lg border border-line bg-paper p-2">
+      <p className="text-xs">Expert review (you are the reviewer; saved on this machine and applied to Teach)
+        {rule.reviewed === "confirmed" && <span className="chip ml-2 border-teal bg-teal text-white">confirmed by expert review</span>}
+        {rule.reviewed === "rejected" && <span className="chip ml-2 border-coral text-coral">rejected: this rule no longer fires</span>}</p>
+      <input className="w-full rounded border border-line px-2 py-1 text-sm" placeholder="Optional correction or note (e.g. an exception to add)" value={note} onChange={(e) => setNote(e.target.value)} />
+      <div className="flex flex-wrap gap-2">
+        <button className="btn btn-primary" onClick={() => act("confirm")}>Confirm this rule</button>
+        <button className="btn btn-ghost" onClick={() => act("reject")}>Reject</button>
+        {rule.reviewed && <button className="btn btn-ghost" onClick={() => act("reset")}>Undo review</button>}
+      </div>
     </div>
   );
 }
@@ -40,6 +59,7 @@ export default function WorkMap() {
   const [unexplained, setUnexplained] = useState<{ event_id: string; ts: number; text: string }[]>([]);
   const [open, setOpen] = useState<string>("");
   const [err, setErr] = useState("");
+  const load = () => api.workmap().then((w) => { setSteps(w.steps); setSeeded(w.seeded_rules); setVersion(w.map_version); setUnexplained(w.unexplained_events); }).catch((e) => setErr(explain(e)));
   useEffect(() => { api.workmap().then((w) => { setSteps(w.steps); setSeeded(w.seeded_rules); setVersion(w.map_version); setUnexplained(w.unexplained_events); setOpen(w.steps[0]?.step_id ?? ""); }).catch((e) => setErr(explain(e))); }, []);
 
   return (
@@ -103,7 +123,7 @@ export default function WorkMap() {
           {seeded.map((r) => (
             <details key={r.rule_id} className="card">
               <summary className="flex cursor-pointer flex-wrap items-center gap-2"><b>{r.title}</b>
-                <span className={`chip ${LABEL_COLOR[r.confidence]}`}>confidence: {r.confidence}</span><span className="chip">risk {r.risk}/3</span><span className="chip">{r.rule_id}</span></summary>
+                <span className={`chip ${LABEL_COLOR[r.confidence]}`}>confidence: {r.confidence}</span>{r.reviewed === "confirmed" && <span className="chip border-teal bg-teal text-white">expert-confirmed</span>}{r.reviewed === "rejected" && <span className="chip border-coral text-coral">rejected</span>}<span className="chip">risk {r.risk}/3</span><span className="chip">{r.rule_id}</span></summary>
               <div className="mt-2 grid gap-3 text-sm lg:grid-cols-2">
                 <div className="space-y-1">
                   <p><b>Context:</b> {r.context}</p><p><b>Action:</b> {r.action}</p><p><b>Why:</b> {r.rationale}</p>
@@ -117,10 +137,12 @@ export default function WorkMap() {
                     : <blockquote key={i} className="quote">“{w.quote}” <span className="text-xs">(transcript {w.unit_id}, verbatim)</span></blockquote>)}
                   {r.caution && <p className="text-xs text-ink/70">Caveat: {r.caution}</p>}
                   <RelatedList items={r.related} />
+                  <ReviewBar rule={r} onChange={load} />
                 </div>
               </div>
             </details>))}
         </section>)}
+      <LearnedMapPanel />
     </div>
   );
 }

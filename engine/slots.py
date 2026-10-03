@@ -21,17 +21,22 @@ PROBES = {
 }
 
 
+def eff(rule: dict, state: str) -> str:
+    """Effective state: a rule the expert reviewed and confirmed counts its transcript hypotheses as confirmed."""
+    return "confirmed" if rule.get("reviewed") == "confirmed" and state in ("hypothesized", "expert_stated") else state
+
+
 def slot_state(rule: dict, slot: str) -> str:
     v = rule["slots"][slot]
     if isinstance(v, list):
         if not v:
             return "missing"
-        states = [i["state"] for i in v]
+        states = [eff(rule, i["state"]) for i in v]
         if "conflicted" in states:
             return "conflicted"
         order = ["missing", "hypothesized", "expert_stated", "confirmed"]
         return max(states, key=order.index)  # slot counts as addressed once the expert has stated any item; items keep their own state
-    return v["state"]
+    return eff(rule, v["state"])
 
 
 def uncertainty(rule: dict) -> float:
@@ -47,6 +52,8 @@ def candidates(rules: list[dict], asked: list[dict], event_field: str | None = N
                guardrail_asked: bool = False) -> list[dict]:
     out = []
     for r in rules:
+        if r.get("learned"):          # learned cards are reviewed in the Map and warn in Teach; they never add live questions
+            continue
         rel = None
         if event_field is not None:
             rel = 1.0 if event_field in r["triggers"] else None   # live: must be about the visible event

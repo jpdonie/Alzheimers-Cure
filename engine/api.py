@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import llm, scope
+from . import learned, llm, scope
 from .session import Conflict, Session
 
 app = FastAPI(title="Apprentice engine")
@@ -74,6 +74,7 @@ class Off(BaseModel): since_ts: float = Field(ge=0)
 class Pred(BaseModel): case_id: str = Field(max_length=10); option: Literal["a", "b", "c", "d"]
 class Save(BaseModel): case_id: str = Field(max_length=10); form: FormIn
 class Rec(BaseModel): on: bool
+class Rev(BaseModel): rule_id: str = Field(max_length=60); decision: Literal["confirm", "reject", "reset"]; note: str = Field("", max_length=600)
 
 
 @app.get("/health")
@@ -162,6 +163,18 @@ def t_brief(b: dict):
         notes = " | ".join(d["summary"] for d in ex["dataset_summaries"])
         lines.append(f"Rule {rid}: {ex['title']}. Verbatim expert words: {quotes or 'none'}." + (f" Dataset summary (not a quotation): {notes}." if notes else ""))
     return {"brief": "\n".join(lines)}
+
+@app.post("/review")
+def review(r: Rev): return S().review(r.rule_id, r.decision, r.note)
+
+@app.get("/learned")
+def learned_map():
+    """Everything the apprentice learned from all interview units, with each card's review state."""
+    d = learned.load(); revs = S().reviews
+    rep_path = DATA / "learner_report.json"
+    return {"cards": [{**c, "review": revs.get(c["id"], {}).get("decision", ""), "review_note": revs.get(c["id"], {}).get("note", ""),
+                       "enforced": revs.get(c["id"], {}).get("decision") == "confirm" and bool(c.get("proposed_predicate"))} for c in d["cards"]],
+            "agenda": d.get("agenda", []), "report": json.loads(rep_path.read_text()) if rep_path.exists() else {}}
 
 @app.get("/rules")
 def rules(): return {"rules": S().rules}
