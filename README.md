@@ -13,3 +13,6 @@ cd web && npm install && npm run dev      # http://localhost:3000 (web/.env.loca
 ```
 Tests: `engine/.venv/bin/python -m pytest -q engine`; browser: `E2E=1 engine/.venv/bin/python -m pytest e2e -q` (engine with `APPRENTICE_OFFLINE=1 APPRENTICE_COOLDOWN=2`).
 Data: place `dementia_care_knowledge_deidentified.json` in `data/` (git-ignored, proprietary).
+
+Learned map (needs `data/dementia_care_knowledge_deidentified.json` and an Anthropic key): `python -m engine.learner extract && python -m engine.learner merge && python -m engine.learner gaps && python -m engine.learner report`. Pitch data: `python -m engine.build_pitch`.
+Proprietary source files (transcript archive, guideline PDF, CBT documents, challenge brief) are git-ignored; keep them under `data/source/`.

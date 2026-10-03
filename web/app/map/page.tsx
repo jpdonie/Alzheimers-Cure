@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { LearnedMapPanel } from "@/components/LearnedMapPanel";
-import { api, explain, type Provenance, type Related, type SeededRule, type Step } from "@/lib/engine";
+import { ENGINE, api, explain, sessionId, type Provenance, type Related, type SeededRule, type Step } from "@/lib/engine";
 
 const LABEL_COLOR: Record<string, string> = { low: "border-coral text-coral", medium: "border-amber bg-amber/20", high: "border-teal bg-teal text-white" };
 
@@ -66,7 +66,10 @@ export default function WorkMap() {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold">Work Map <span className="chip ml-2" title="Content hash of the artifact the Teach step consumes">version {version}</span></h2>
-        <Link href="/teach" className="btn btn-primary">Teach a new hire →</Link>
+        <div className="flex gap-2">
+          <a href={`${ENGINE}/export?sid=${encodeURIComponent(sessionId())}`} className="btn btn-ghost" download>Export agent-ready guardrails</a>
+          <Link href="/teach" className="btn btn-primary">Teach a new hire →</Link>
+        </div>
       </div>
       {err && <p className="text-coral">{err}</p>}
       {!steps.length && !err && <p className="card">No live steps yet. Run Capture to add steps from what the apprentice sees and you explain. The seeded map from the expert transcripts is below.</p>}

@@ -45,3 +45,12 @@ def test_rejected_or_unknown_learned_cards_are_not_enforced():
 def test_card_without_a_validated_predicate_is_never_executable():
     c = {**CARD, "proposed_predicate": None}
     assert learned.to_rule(c) is None
+
+
+def test_review_does_not_apply_to_a_different_card_after_the_map_is_rebuilt():
+    from engine.session import reviews_path
+    _put([CARD]); s = Session("capture"); s.review("LC-900", "confirm")
+    assert s.rule("LC-900")                                             # applies while the card title matches
+    _put([{**CARD, "title": "A completely different card now owns this id"}])
+    assert not any(r.get("learned") for r in Session("capture").rules)  # stale review is ignored, never misapplied
+    s.review("LC-900", "reset")

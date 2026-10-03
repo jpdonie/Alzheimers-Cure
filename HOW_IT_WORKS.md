@@ -38,6 +38,13 @@ Each fired rule shows its predicate text and a per-clause match table, so nothin
 - **Missing stays missing (live):** a step with no live explanation says so; events that were demonstrated but never explained are listed, not guessed.
 - **Held-out abstention (evaluation only):** `engine/eval_heldout.py` learns from some sessions and tests on unseen ones. It answers when the top retrieval score clears a threshold tuned on the other folds, otherwise it abstains. It is not wired into the live path; live abstention is the incident-type coverage check above plus the scope lexicon, which are coarser and rule-based. A refusal-type case that fires no rule still saves.
 
+## The learned map and expert review
+- `python -m engine.learner` reads all gold-eligible interview units, extracts decision cards, verifies every quoted span against the transcript text, merges across sessions, ranks gaps and checks for conflicts. The Work Map page lists the cards with filters, an agenda of what to ask an expert next, and Accept / Reject buttons.
+- The seeded rules have the same review: **Confirm this rule** marks it expert-confirmed (evidence label "confirmed by expert review", used in Teach), **Reject** stops it from firing. Reviews are saved on this machine and applied to every new session.
+- An accepted learned card that has a validated predicate becomes a warn-level rule in Teach. It never blocks and never adds live questions.
+- **Export agent-ready guardrails** (Map page, `/export`) writes the active rules as instructions with STOP/WARN conditions and honest status labels.
+- `/moonshot` is the pitch slide: held-out results, the DP simulation and a scripted drift vignette. It is not part of the live path.
+
 ## Evidence and honesty
 - Seeded knowledge and live capture are different provenance classes; the Map labels each. Dataset summaries are never shown as quotations.
 - Confidence is facets (evidence strength, source class, teach-back, open slots), never a probability.

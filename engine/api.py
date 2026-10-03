@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import learned, llm, scope
+from . import export as exporter, learned, llm, scope
 from .session import Conflict, Session
 
 app = FastAPI(title="Apprentice engine")
@@ -167,13 +167,21 @@ def t_brief(b: dict):
 @app.post("/review")
 def review(r: Rev): return S().review(r.rule_id, r.decision, r.note)
 
+@app.get("/export")
+def export_guardrails():
+    return Response(exporter.build(S().rules, S().teachback, S().map_version()), media_type="text/markdown; charset=utf-8",
+                    headers={"content-disposition": 'attachment; filename="apprentice-guardrails.md"'})
+
 @app.get("/learned")
 def learned_map():
     """Everything the apprentice learned from all interview units, with each card's review state."""
     d = learned.load(); revs = S().reviews
     rep_path = DATA / "learner_report.json"
-    return {"cards": [{**c, "review": revs.get(c["id"], {}).get("decision", ""), "review_note": revs.get(c["id"], {}).get("note", ""),
-                       "enforced": revs.get(c["id"], {}).get("decision") == "confirm" and bool(c.get("proposed_predicate"))} for c in d["cards"]],
+    def rv(c):   # a review counts only if it still points at the same card title
+        r = revs.get(c["id"], {})
+        return r if r and (not r.get("title") or r["title"] == c["title"]) else {}
+    return {"cards": [{**c, "review": rv(c).get("decision", ""), "review_note": rv(c).get("note", ""),
+                       "enforced": rv(c).get("decision") == "confirm" and bool(c.get("proposed_predicate"))} for c in d["cards"]],
             "agenda": d.get("agenda", []), "report": json.loads(rep_path.read_text()) if rep_path.exists() else {}}
 
 @app.get("/rules")

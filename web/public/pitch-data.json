@@ -1,0 +1,273 @@
+{
+ "eval": {
+  "bm25": {
+   "recall@3": 0.547,
+   "mrr": 0.387,
+   "selective_acc_top1": 0.263,
+   "coverage": 0.7,
+   "correct_abstention_rate": 0.962,
+   "escalation_recall_flagged": 0.0,
+   "escalation_recall_abstain_or_flag": 0.76,
+   "n_answerable": 137,
+   "n_out_of_knowledge": 53,
+   "n_escalate": 50,
+   "ci95_by_session": {
+    "recall@3": [
+     0.438,
+     0.614
+    ],
+    "mrr": [
+     0.275,
+     0.452
+    ],
+    "selective_acc_top1": [
+     0.14,
+     0.35
+    ],
+    "coverage": [
+     0.415,
+     0.867
+    ],
+    "correct_abstention_rate": [
+     0.833,
+     1.0
+    ],
+    "escalation_recall_flagged": [
+     0.0,
+     0.0
+    ],
+    "escalation_recall_abstain_or_flag": [
+     0.667,
+     0.859
+    ]
+   }
+  },
+  "tfidf": {
+   "recall@3": 0.606,
+   "mrr": 0.462,
+   "selective_acc_top1": 0.357,
+   "coverage": 0.605,
+   "correct_abstention_rate": 0.868,
+   "escalation_recall_flagged": 0.0,
+   "escalation_recall_abstain_or_flag": 0.96,
+   "n_answerable": 137,
+   "n_out_of_knowledge": 53,
+   "n_escalate": 50,
+   "ci95_by_session": {
+    "recall@3": [
+     0.528,
+     0.674
+    ],
+    "mrr": [
+     0.4,
+     0.546
+    ],
+    "selective_acc_top1": [
+     0.273,
+     0.433
+    ],
+    "coverage": [
+     0.405,
+     0.738
+    ],
+    "correct_abstention_rate": [
+     0.765,
+     0.952
+    ],
+    "escalation_recall_flagged": [
+     0.0,
+     0.0
+    ],
+    "escalation_recall_abstain_or_flag": [
+     0.914,
+     1.0
+    ]
+   }
+  },
+  "tfidf+scope": {
+   "recall@3": 0.606,
+   "mrr": 0.462,
+   "selective_acc_top1": 0.359,
+   "coverage": 0.542,
+   "correct_abstention_rate": 0.868,
+   "escalation_recall_flagged": 1.0,
+   "escalation_recall_abstain_or_flag": 1.0,
+   "n_answerable": 137,
+   "n_out_of_knowledge": 53,
+   "n_escalate": 50,
+   "ci95_by_session": {
+    "recall@3": [
+     0.528,
+     0.674
+    ],
+    "mrr": [
+     0.4,
+     0.546
+    ],
+    "selective_acc_top1": [
+     0.278,
+     0.46
+    ],
+    "coverage": [
+     0.366,
+     0.675
+    ],
+    "correct_abstention_rate": [
+     0.765,
+     0.952
+    ],
+    "escalation_recall_flagged": [
+     1.0,
+     1.0
+    ],
+    "escalation_recall_abstain_or_flag": [
+     1.0,
+     1.0
+    ]
+   }
+  },
+  "care_map": {
+   "recall@3": 0.467,
+   "mrr": 0.359,
+   "selective_acc_top1": 0.255,
+   "coverage": 0.537,
+   "correct_abstention_rate": 0.717,
+   "escalation_recall_flagged": 0.0,
+   "escalation_recall_abstain_or_flag": 0.9,
+   "n_answerable": 137,
+   "n_out_of_knowledge": 53,
+   "n_escalate": 50,
+   "ci95_by_session": {
+    "recall@3": [
+     0.394,
+     0.592
+    ],
+    "mrr": [
+     0.299,
+     0.449
+    ],
+    "selective_acc_top1": [
+     0.144,
+     0.355
+    ],
+    "coverage": [
+     0.406,
+     0.655
+    ],
+    "correct_abstention_rate": [
+     0.584,
+     0.877
+    ],
+    "escalation_recall_flagged": [
+     0.0,
+     0.0
+    ],
+    "escalation_recall_abstain_or_flag": [
+     0.9,
+     0.9
+    ]
+   }
+  },
+  "care_map+scope": {
+   "recall@3": 0.467,
+   "mrr": 0.359,
+   "selective_acc_top1": 0.272,
+   "coverage": 0.484,
+   "correct_abstention_rate": 0.736,
+   "escalation_recall_flagged": 1.0,
+   "escalation_recall_abstain_or_flag": 1.0,
+   "n_answerable": 137,
+   "n_out_of_knowledge": 53,
+   "n_escalate": 50,
+   "ci95_by_session": {
+    "recall@3": [
+     0.394,
+     0.592
+    ],
+    "mrr": [
+     0.299,
+     0.449
+    ],
+    "selective_acc_top1": [
+     0.143,
+     0.394
+    ],
+    "coverage": [
+     0.369,
+     0.587
+    ],
+    "correct_abstention_rate": [
+     0.615,
+     0.885
+    ],
+    "escalation_recall_flagged": [
+     1.0,
+     1.0
+    ],
+    "escalation_recall_abstain_or_flag": [
+     1.0,
+     1.0
+    ]
+   }
+  }
+ },
+ "eval_n": 160,
+ "dp": [
+  {
+   "eps": 0.1,
+   "mae": 20.026
+  },
+  {
+   "eps": 0.5,
+   "mae": 4.799
+  },
+  {
+   "eps": 1,
+   "mae": 2.738
+  },
+  {
+   "eps": 2,
+   "mae": 1.558
+  },
+  {
+   "eps": 5,
+   "mae": 0.718
+  },
+  {
+   "eps": 10,
+   "mae": 0.39
+  }
+ ],
+ "drift": {
+  "steps": [
+   {
+    "event": "Expert saves a refusal note with no pain check and no escalation",
+    "apprentice": "Earlier material says: Pain / physical-discomfort check is not logged for this refusal. But your saved record does not follow that. What changed here?"
+   },
+   {
+    "event": "Expert explains why",
+    "apprentice": "Rule kept, boundary versioned as an exception (never overwritten); disposition recorded: exception-or-change (expert explained)"
+   },
+   {
+    "event": "Expert says escalation starts at two refusals, not three",
+    "apprentice": "Boundary on R3 changed 3 -> 2, version 2, with the expert's quote as provenance"
+   }
+  ]
+ },
+ "learner": {
+  "merged_cards": 98,
+  "by_kind": {
+   "decision_rule": 22,
+   "measurement": 10,
+   "process": 35,
+   "principle": 28,
+   "escalation_rule": 3
+  },
+  "verbatim_verified": 96,
+  "with_guardrails": 46,
+  "with_exceptions": 9,
+  "corroborated_2plus_sessions": 6,
+  "cbt_all_three": 1,
+  "safety_critical": 7
+ }
+}

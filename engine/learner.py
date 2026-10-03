@@ -169,6 +169,8 @@ def merge(threshold: float = 0.42):
             "evidence_status": "verbatim-verified" if any(c["evidence"] for c in g) else "summary-only",
             "proposed_predicate": next((c["proposed_predicate"] for c in g if c["proposed_predicate"]), None),
             "corroboration": len({c["session"] for c in g}), "status": "transcript-learned (unreviewed)", "contradictions": []})
+    if LEARNED.exists():   # card ids are per-run: keep the previous map so reviews can be traced; reviews also bind to titles
+        LEARNED.with_suffix(".prev.json").write_text(LEARNED.read_text())
     LEARNED.write_text(json.dumps({"version": "learned-1", "n_cards_raw": n, "cards": out}, indent=1))
     print(n, "raw cards ->", len(out), "merged cards;", sum(1 for c in out if c["corroboration"] >= 2), "corroborated by 2+ sessions")
 

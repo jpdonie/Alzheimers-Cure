@@ -37,7 +37,8 @@ export function Nav() {
 export function SafetyFooter() {
   return (
     <footer className="mt-auto border-t border-line bg-sage px-4 py-2 text-center text-sm">
-      Training and documentation support only. Not diagnosis or treatment. Pain, medication, or deterioration concerns must escalate to a clinician. Demo uses fake data.
+      Training and documentation support only. Not diagnosis or treatment. Pain, medication, or deterioration concerns must escalate to a clinician. Demo uses fake data.{" "}
+      <Link href="/moonshot" className="underline">Moonshot slide</Link>
     </footer>
   );
 }

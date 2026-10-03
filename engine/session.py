@@ -105,7 +105,10 @@ class Session:
         self.rules = [r for r in self.rules if not r.get("learned")]
         for cid, rv in self.reviews.items():
             if cid.startswith("LC-") and rv["decision"] == "confirm":
-                c = learned.card(cid); lr = learned.to_rule(c) if c else None
+                c = learned.card(cid)
+                if c and rv.get("title") and rv["title"] != c["title"]:
+                    c = None                    # the learned map was rebuilt: never apply a review to a different card
+                lr = learned.to_rule(c) if c else None
                 if lr:
                     lr["reviewed"] = "confirmed"; lr["review_note"] = rv.get("note", ""); self.rules.append(lr)
 
@@ -119,6 +122,8 @@ class Session:
             revs.pop(rule_id, None)
         else:
             revs[rule_id] = {"decision": decision, "note": redact(note)[0][:600], "ts": self.now(), "at": time.strftime("%Y-%m-%d %H:%M")}
+            if rule_id.startswith("LC-"):       # learned-card ids depend on the merge run, so bind the review to the card's title
+                revs[rule_id]["title"] = (learned.card(rule_id) or {}).get("title", "")
         reviews_path().parent.mkdir(exist_ok=True); reviews_path().write_text(json.dumps(revs, indent=1))
         self.reviews = revs; self._apply_reviews(); self._save()
         return {"rule_id": rule_id, "decision": decision if decision != "reset" else "not reviewed", "map_version": self.map_version()}
