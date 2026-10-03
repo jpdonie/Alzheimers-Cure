@@ -250,3 +250,11 @@ def test_map_confirmed_requires_every_live_step():
     assert not s._map_confirmed()                       # partial confirmation is not confirmation
     for st in steps[1:]: s.confirm(st["rule_id"], True)
     assert s._map_confirmed()
+
+
+def test_abstains_when_the_incident_type_is_outside_learned_knowledge():
+    t = Session("teach"); t.teach_predict("T1", "b")
+    form = {"incident_type": "other", "checks": [], "occurrences_today": 1, "escalate_to": "none", "intervention": "no_action", "pattern": "new"}
+    r = t.teach_check_save("T1", form)
+    assert not r["saved"] and r["blocked"][-1]["guardrail_id"] == "ABSTAIN-outside-knowledge"
+    assert t.teach_check_save("T1", {**form, "escalate_to": "team_meeting"})["saved"]       # a human route resolves the abstention

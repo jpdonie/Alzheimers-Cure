@@ -5,6 +5,7 @@ from pathlib import Path
 
 from . import guard, scope, slots as S, llm
 from .confidence import facets
+from .related import related
 from .mastery import Mastery
 from .privacy import redact
 
@@ -303,7 +304,7 @@ class Session:
                           "provenance": [{"kind": "screen", "event_id": q["event_id"], "ts": q["ts"]} for q in qs] +
                                         [{"kind": "transcript", "unit_id": s["unit_id"], "session": s["session"], "turn_ids": s["turn_ids"],
                                           "span": s["quote_span"], "verbatim": s["kind"] == "verbatim"} for s in r["sources"]],
-                          "versions": r.get("versions", [])})
+                          "versions": r.get("versions", []), "related": related(r)})
         steps.sort(key=lambda s: s["screen_moment"]["ts"])
         for i, s in enumerate(steps): s["n"] = i + 1
         seeded = [{"rule_id": r["id"], "title": r["title"], "risk": r["risk"],
@@ -311,7 +312,7 @@ class Session:
                    "guardrails": [{"text": g["text"], "state": g["state"]} for g in r["slots"]["guardrails"]],
                    "escalation": r["slots"]["escalation"]["text"], "predicate": guard.render(r["predicate"]), "severity": r["predicate"]["severity"],
                    "evidence": self._source_evidence(r), "caution": r.get("caution", ""),
-                   "confidence": facets(r, 0, "none")["label"], "states": S.snapshot_states([r])[r["id"]]}
+                   "confidence": facets(r, 0, "none")["label"], "states": S.snapshot_states([r])[r["id"]], "related": related(r)}
                   for r in self.rules if r["id"] not in by_rule]
         asked_events = {q["event_id"] for q in self.questions if q["event_id"]}
         unexplained = [{"event_id": e["id"], "ts": e["ts"], "text": e["text"]} for e in self.events if e["id"] not in asked_events and e.get("field") != "save"]
@@ -455,6 +456,15 @@ class Session:
                           {"field": "escalate_to", "op": "in", "expected": list(scope.HUMAN_ROUTES), "observed": form.get("escalate_to", ""), "met": False}],
                 "text": f"observation mentions a clinical term AND escalate_to not in {list(scope.HUMAN_ROUTES)}",
                 "explain": {"rule_id": "SCOPE", "title": "Clinical scope", "expert_words": [], "dataset_summaries": [], "screen_moment": None}})
+        if form.get("incident_type") not in scope.COVERED_INCIDENTS and form.get("escalate_to") not in scope.HUMAN_ROUTES:   # outside learned knowledge: abstain
+            blocked.append({"rule_id": "ABSTAIN-outside-knowledge"})
+            res["blocked"].append({"rule_id": "ABSTAIN-outside-knowledge", "title": "Outside what the apprentice has learned", "severity": "block",
+                "message": "No learned rule covers this incident type, so the apprentice abstains. A qualified person must review it.",
+                "guardrail_id": "ABSTAIN-outside-knowledge", "evidence_class": "abstention (no learned rule applies)",
+                "trace": [{"field": "incident_type", "op": "in", "expected": list(scope.COVERED_INCIDENTS), "observed": form.get("incident_type", ""), "met": False},
+                          {"field": "escalate_to", "op": "in", "expected": list(scope.HUMAN_ROUTES), "observed": form.get("escalate_to", ""), "met": False}],
+                "text": f"incident_type not in {list(scope.COVERED_INCIDENTS)} AND escalate_to not in {list(scope.HUMAN_ROUTES)}",
+                "explain": {"rule_id": "ABSTAIN", "title": "Outside knowledge", "expert_words": [], "dataset_summaries": [], "screen_moment": None}})
         res["saved"] = not blocked
         self.attempts.append({"case": case_id, "kind": "save", "blocked": [b["rule_id"] for b in blocked], "first": first, "ts": self.now()})
         if first:

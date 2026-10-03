@@ -29,13 +29,14 @@ Apprentice learns **why** an expert documents and escalates a dementia-care refu
 | R5 Habitual vs new | escalating without saying new or habitual | warns | classify first |
 | R6 Exit-seeking | exit-seeking handled with a refusal strategy | blocks Save | integration plan review |
 
-Each fired rule shows its predicate text and a per-clause match table, so nothing is a hidden trick. Only these 6 are executable; the other interview units feed retrieval and the held-out evaluation.
+Each fired rule shows its predicate text and a per-clause match table, so nothing is a hidden trick. Only these 6 are executable. The rules cite 9 of the 77 interview units; every rule card in the Work Map also lists the 3 most related units retrieved from the whole transcript set (labelled automatic, not confirmed), and all 70 gold-eligible units feed the held-out evaluation.
 
 ## How abstention and escalation work (and what is honest)
 - **Fail closed to a human (live):** `engine/scope.py` is a transparent lexicon (medication, dose, sedative, fall, choking, chest pain, unresponsive, pain, swelling, deterioration, and similar). If the observation text matches and the record is not escalated to a nurse, physician or team meeting, Save is blocked. This is not learned and cannot be talked around.
+- **Outside learned knowledge (live):** if the incident type is one no rule covers (for example "Other" or "Medication request" with nothing else firing), Teach abstains: Save is blocked until the record is escalated to a nurse, physician or team meeting. This uses the form's incident type, not semantic understanding of free text.
 - **Silence is abstention (live):** the apprentice does not ask when the gate is closed, the event is stale, or no uncertain slot is relevant to the screen event.
 - **Missing stays missing (live):** a step with no live explanation says so; events that were demonstrated but never explained are listed, not guessed.
-- **Held-out abstention (evaluation only):** `engine/eval_heldout.py` learns from some sessions and tests on unseen ones. It answers when the top retrieval score clears a threshold tuned on the other folds, otherwise it abstains. It is **not** wired into the live Teach save check: a case that matches no rule simply saves. That limit is deliberate to state, not hide.
+- **Held-out abstention (evaluation only):** `engine/eval_heldout.py` learns from some sessions and tests on unseen ones. It answers when the top retrieval score clears a threshold tuned on the other folds, otherwise it abstains. It is not wired into the live path; live abstention is the incident-type coverage check above plus the scope lexicon, which are coarser and rule-based. A refusal-type case that fires no rule still saves.
 
 ## Evidence and honesty
 - Seeded knowledge and live capture are different provenance classes; the Map labels each. Dataset summaries are never shown as quotations.

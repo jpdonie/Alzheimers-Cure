@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api, explain, type Provenance, type SeededRule, type Step } from "@/lib/engine";
+import { api, explain, type Provenance, type Related, type SeededRule, type Step } from "@/lib/engine";
 
 const LABEL_COLOR: Record<string, string> = { low: "border-coral text-coral", medium: "border-amber bg-amber/20", high: "border-teal bg-teal text-white" };
 
@@ -13,6 +13,17 @@ function Frame({ id, form }: { id: string; form?: Record<string, unknown> }) {
       {bad && <p className="text-xs text-ink/70">No frame captured (degraded mode). Form state at that moment:</p>}
       {form && <table className="text-xs"><tbody>{Object.entries(form).map(([k, v]) => <tr key={k}><td className="pr-2 font-semibold">{k}</td><td>{JSON.stringify(v)}</td></tr>)}</tbody></table>}
     </div>
+  );
+}
+
+function RelatedList({ items }: { items: Related[] }) {
+  if (!items.length) return null;
+  return (
+    <details className="text-sm"><summary className="cursor-pointer text-teal">Related expert knowledge from other interviews ({items.length})</summary>
+      <p className="text-xs text-ink/70">Retrieved automatically from the whole transcript set. Not curated, not confirmed live; paraphrased dataset rules, not quotations.</p>
+      <ul className="mt-1 space-y-1">{items.map((r) => (
+        <li key={r.unit_id} className="rounded border border-line p-2"><span className="chip">{r.unit_id}</span> <span className="chip">{r.session}</span> <b>{r.subtopic}</b>
+          {r.branches.map((b) => <p key={b} className="text-xs">• {b}</p>)}{r.caveat && <p className="text-xs text-ink/70">Caveat: {r.caveat}</p>}</li>))}</ul></details>
   );
 }
 
@@ -78,6 +89,7 @@ export default function WorkMap() {
                     <span className="chip">still open: {s.unresolved_slots.join(", ") || "none"}</span>
                   </div>
                   {s.confidence.caution && <p className="text-xs text-ink/70">Caveat: {s.confidence.caution}</p>}
+                  <RelatedList items={s.related} />
                   <details><summary className="cursor-pointer text-teal">Provenance</summary><ul className="mt-1 list-disc space-y-1 pl-5 text-sm">{s.provenance.map((p, i) => <ProvRow key={i} p={p} />)}</ul></details>
                 </div>
               </div>)}
@@ -104,6 +116,7 @@ export default function WorkMap() {
                     ? <p key={i} className="text-xs"><span className="chip">dataset summary, not a quotation</span> {w.summary} ({w.unit_id})</p>
                     : <blockquote key={i} className="quote">“{w.quote}” <span className="text-xs">(transcript {w.unit_id}, verbatim)</span></blockquote>)}
                   {r.caution && <p className="text-xs text-ink/70">Caveat: {r.caution}</p>}
+                  <RelatedList items={r.related} />
                 </div>
               </div>
             </details>))}

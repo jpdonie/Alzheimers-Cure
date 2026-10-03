@@ -22,11 +22,13 @@ export type Step = {
   rationale_seed: string; exceptions: { text: string; state: string }[];
   guardrails: { text: string; state: string; expert_words: Evidence[] }[];
   escalation: string; unresolved_slots: string[]; teach_back: string; provenance: Provenance[];
+  related: Related[];
   confidence: { label: string; evidence_strength: string; evidence_count: number; source_class: string; teach_back: string; slot_states: string[]; caution: string; sessions: string[] };
 };
+export type Related = { unit_id: string; session: string; subtopic: string; source_type: string; score: number; branches: string[]; caveat: string };
 export type SeededRule = {
   rule_id: string; title: string; risk: number; context: string; action: string; rationale: string; escalation: string; predicate: string; severity: string;
-  guardrails: { text: string; state: string }[]; evidence: Evidence[]; caution: string; confidence: string;
+  guardrails: { text: string; state: string }[]; evidence: Evidence[]; caution: string; confidence: string; related: Related[];
 };
 export type Block = {
   rule_id: string; title: string; message: string; text: string; guardrail_id: string; evidence_class: string;
