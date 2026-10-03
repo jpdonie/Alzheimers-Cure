@@ -230,6 +230,8 @@ class Session:
 
     # ---------- debrief
     def debrief_start(self) -> dict:
+        if not any(q["phase"] == "capture" and q["answered"] for q in self.questions):
+            raise Conflict("capture at least one explained decision before the debrief")
         asked = self.questions
         touched = {q["rule_id"] for q in asked if q["phase"] == "capture"}
         gaps = S.gap_scan(self.rules, asked, touched or None, 3)
@@ -383,7 +385,7 @@ class Session:
     # ---------- teach
     def teach_open(self, case_id: str) -> dict:
         c = next(x for x in self.cases["teach_cases"] if x["id"] == case_id)
-        return {k: v for k, v in c.items() if k not in ("rule_ids",)} | {"map_version": self.map_version(), "predict": {"question": c["predict"]["question"], "options": c["predict"]["options"]}}
+        return {k: v for k, v in c.items() if k not in ("rule_ids",)} | {"map_version": self.map_version(), "map_confirmed": any(v in ("confirmed", "corrected") for v in self.teachback.values()), "predict": {"question": c["predict"]["question"], "options": c["predict"]["options"]}}
 
     def teach_predict(self, case_id: str, option: str) -> dict:
         c = next(x for x in self.cases["teach_cases"] if x["id"] == case_id)
@@ -433,13 +435,13 @@ class Session:
             res["blocked"].append({**b, "explain": ex, "guardrail_id": r["id"],
                                    "evidence_class": "live expert capture" if ex["screen_moment"] else "transcript only (not yet confirmed live)"})
         sc = scope.classify(form.get("observation", ""))
-        if sc["escalate"] and form.get("escalate_to") not in ("nurse", "coordinating_physician"):   # fail closed on clinical language
+        if sc["escalate"] and form.get("escalate_to") not in scope.HUMAN_ROUTES:   # fail closed on clinical language
             blocked.append({"rule_id": "SCOPE-clinical-escalation"})
             res["blocked"].append({"rule_id": "SCOPE-clinical-escalation", "title": "A clinical concern must reach a qualified human", "severity": "block",
                 "message": sc["reason"], "guardrail_id": "SCOPE-clinical-escalation", "evidence_class": "fail-closed safety lexicon (not learned from the expert)",
                 "trace": [{"field": "observation", "op": "mentions", "expected": "a clinical term", "observed": sc["term"], "met": True},
-                          {"field": "escalate_to", "op": "in", "expected": ["nurse", "coordinating_physician"], "observed": form.get("escalate_to", ""), "met": False}],
-                "text": "observation mentions a clinical term AND escalate_to not in ['nurse', 'coordinating_physician']",
+                          {"field": "escalate_to", "op": "in", "expected": list(scope.HUMAN_ROUTES), "observed": form.get("escalate_to", ""), "met": False}],
+                "text": f"observation mentions a clinical term AND escalate_to not in {list(scope.HUMAN_ROUTES)}",
                 "explain": {"rule_id": "SCOPE", "title": "Clinical scope", "expert_words": [], "dataset_summaries": [], "screen_moment": None}})
         res["saved"] = not blocked
         self.attempts.append({"case": case_id, "kind": "save", "blocked": [b["rule_id"] for b in blocked], "first": first, "ts": self.now()})

@@ -80,7 +80,7 @@ def test_capture_debrief_map_teach():
         page.get_by_role("button", name=re.compile(r"^A\. Note")).click()
         page.get_by_role("button", name="Save record").click()
         page.get_by_text("Hold on: not saved yet").wait_for()
-        assert page.get_by_text("dataset summary, not a quotation").count() >= 0
+        assert page.get_by_text("dataset summary, not a quotation").count() == 0     # R1/R3 have verbatim spans only
         assert page.get_by_text("predicate:", exact=False).count() >= 1
         assert page.get_by_text("guardrail R1-somatic-first").count() == 1
         page.get_by_role("button", name="Fix it").click()
@@ -99,4 +99,14 @@ def test_capture_debrief_map_teach():
         page.get_by_role("button", name=re.compile(r"^A\. Log it as a refusal")).click()
         page.get_by_role("button", name="Save record").click()
         page.get_by_text("guardrail R6-exit-seeking").wait_for()
+        page.get_by_role("button", name="Fix it").click()
+
+        # T3: the medication rule is backed only by dataset summaries, which must never be shown as quotations
+        page.get_by_role("button", name=re.compile("T3:")).click()
+        page.get_by_text("Restless in the evening").first.wait_for()
+        page.get_by_role("button", name=re.compile(r"^A\. Give the PRN")).click()
+        page.get_by_label("Intervention").select_option("give_prn_medication")
+        page.get_by_role("button", name="Save record").click()
+        page.get_by_text("guardrail R4-treatment-routing").wait_for()
+        assert page.get_by_text("dataset summary, not a quotation").count() >= 1
         b.close()

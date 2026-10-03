@@ -1,5 +1,6 @@
 """FastAPI surface for the web app. Run: uvicorn engine.api:app --port 8000"""
-import asyncio, copy, json, os
+import asyncio, contextvars, copy, json, os
+from collections import OrderedDict
 from pathlib import Path
 import base64
 from fastapi import FastAPI, HTTPException, Response
@@ -13,12 +14,16 @@ from .session import Conflict, Session
 
 app = FastAPI(title="Apprentice engine")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"], allow_methods=["*"], allow_headers=["*"])
-STATE: dict = {"s": Session("capture")}   # single-user local demo server: one session, requests serialised below
+SESSIONS: "OrderedDict[str, Session]" = OrderedDict()   # one Session per browser (X-Session-Id), oldest evicted
+CURRENT = contextvars.ContextVar("sid", default="default")
+MAX_SESSIONS = 20
 LOCK = asyncio.Lock()
 
 
 @app.middleware("http")
 async def serialise(request, call_next):
+    sid = (request.headers.get("x-session-id") or request.query_params.get("sid") or "default")[:64]
+    CURRENT.set(sid)
     async with LOCK:
         return await call_next(request)
 
@@ -29,7 +34,13 @@ async def conflict(_, exc: Conflict):
 DATA = Path(__file__).resolve().parent.parent / "data"
 
 
-def S() -> Session: return STATE["s"]
+def S() -> Session:
+    sid = CURRENT.get()
+    if sid not in SESSIONS:
+        SESSIONS[sid] = Session("capture")
+        while len(SESSIONS) > MAX_SESSIONS: SESSIONS.popitem(last=False)
+    SESSIONS.move_to_end(sid)
+    return SESSIONS[sid]
 
 
 class NewSession(BaseModel): mode: Literal["capture", "teach"] = "capture"
@@ -71,13 +82,13 @@ def health(): return {"ok": True, "session": S().id, "degraded": S().degraded, "
 @app.post("/session")
 def new(b: NewSession):
     if b.mode == "teach":   # keep what the apprentice learned in capture
-        old = STATE["s"]; s = Session("teach")
+        old = S(); s = Session("teach")
         s.rules, s.teachback, s.frames, s.drift_log = copy.deepcopy(old.rules), dict(old.teachback), dict(old.frames), copy.deepcopy(old.drift_log)
         s.events, s.questions, s.answers = copy.deepcopy(old.events), copy.deepcopy(old.questions), copy.deepcopy(old.answers)
         s.freeze()
-        STATE["s"] = s
+        SESSIONS[CURRENT.get()] = s
     else:
-        STATE["s"] = Session(b.mode)
+        SESSIONS[CURRENT.get()] = Session(b.mode)
     return {"id": S().id, "mode": S().mode, "capture_scenario": S().cases["capture_scenario"]}
 
 @app.get("/cases")

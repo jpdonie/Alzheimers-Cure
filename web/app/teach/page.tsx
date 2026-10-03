@@ -76,6 +76,7 @@ export default function Teach() {
           <div className="flex items-center justify-between"><h2 className="text-lg font-bold">Tutor {c && <span className="chip ml-1 text-xs" title="Same Work Map artifact the expert confirmed">map {c.map_version}</span>}</h2>
             <button className="btn btn-primary" onClick={voice.start} disabled={voice.connected}>{voice.connected ? "Voice connected" : "Start voice"}</button></div>
           <div className="flex flex-wrap gap-1">{cases.map((x) => <button key={x.id} className={`chip ${x.id === caseId ? "bg-teal text-white" : ""}`} onClick={() => open(x.id)}>{x.id}: {x.title}</button>)}</div>
+          {c && !c.map_confirmed && <p className="rounded-lg border border-amber bg-amber/20 p-2 text-sm">Teaching from the transcript-seeded map: the expert has not confirmed it by teach-back in this session.</p>}
           {c && <div className="rounded-lg bg-sage p-3">
             <p className="font-semibold">Predict: {c.predict.question}</p>
             {Object.entries(c.predict.options).map(([k, v]) => (

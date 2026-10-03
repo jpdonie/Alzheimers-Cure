@@ -30,8 +30,17 @@ export type Block = {
   explain: { expert_words: { kind: string; quote: string; unit_id?: string; turn?: string; ts?: number }[]; dataset_summaries: { summary: string; unit_id: string }[]; screen_moment: { event_id: string; ts: number; frame: boolean } | null };
 };
 
+/** One id per browser tab: the engine keeps a separate session (and Off-the-record flag) for each. */
+export function sessionId(): string {
+  try {
+    let id = sessionStorage.getItem("apprentice-sid");
+    if (!id) { id = crypto.randomUUID(); sessionStorage.setItem("apprentice-sid", id); }
+    return id;
+  } catch { return "default"; }
+}
+
 async function call<T>(path: string, body?: unknown, method = body ? "POST" : "GET"): Promise<T> {
-  const r = await fetch(`${ENGINE}${path}`, { method, headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  const r = await fetch(`${ENGINE}${path}`, { method, headers: { "content-type": "application/json", "x-session-id": sessionId() }, body: body ? JSON.stringify(body) : undefined });
   if (!r.ok) throw new Error(`${path}: ${r.status}`);
   return r.json();
 }
@@ -50,9 +59,9 @@ export const api = {
   confirm: (rule_id: string, ok: boolean, correction?: string) => call<{ teach_back: string }>("/debrief/confirm", { rule_id, ok, correction }),
   workmap: () => call<{ map_version: string; steps: Step[]; seeded_only_rules: string[]; unexplained_events: { event_id: string; ts: number; text: string }[] }>("/workmap"),
   offRecord: (since_ts: number) => call<{ events: number; frames: number; answers: number; slot_items: number; disclosure: string }>("/off-record", { since_ts }),
-  teachOpen: (case_id: string) => call<{ map_version: string; id: string; resident: string; title: string; facts: string[]; predict: { question: string; options: Record<string, string> }; form_start: Partial<Form> }>("/teach/open", { case_id }),
+  teachOpen: (case_id: string) => call<{ map_version: string; map_confirmed: boolean; id: string; resident: string; title: string; facts: string[]; predict: { question: string; options: Record<string, string> }; form_start: Partial<Form> }>("/teach/open", { case_id }),
   predict: (case_id: string, option: string) => call<{ correct: boolean; explain: unknown }>("/teach/predict", { case_id, option }),
   checkSave: (case_id: string, form: Partial<Form>) => call<{ saved: boolean; blocked: Block[]; warnings: { rule_id: string; message: string }[]; mastery: { rule_id: string; mean: number; level: string; hinted: number }[]; next_scenario: string | null }>("/teach/check-save", { case_id, form }),
   brief: (case_id: string) => call<{ brief: string }>("/teach/brief", { case_id }),
-  frameUrl: (id: string) => `${ENGINE}/frame/${id}`,
+  frameUrl: (id: string) => `${ENGINE}/frame/${id}?sid=${encodeURIComponent(sessionId())}`,
 };

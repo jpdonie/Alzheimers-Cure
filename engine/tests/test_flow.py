@@ -227,3 +227,14 @@ def test_workmap_lists_demonstrated_events_without_explanations():
     s.add_event({"field": "observation", "value": "refuses tray", "form": {}})
     wm = s.workmap()
     assert wm["unexplained_events"] and wm["unexplained_events"][0]["text"].startswith("changed observation")
+
+
+def test_pain_and_swelling_language_requires_a_human_route():
+    from engine import scope
+    assert scope.classify("she is in pain and her foot is swollen")["escalate"]
+    assert not scope.classify("refused the tray, hearing aids were in the drawer")["escalate"]
+    t = Session("teach"); t.teach_predict("T1", "b")
+    form = {"incident_type": "refusal_of_care", "checks": ["pain"], "occurrences_today": 1, "escalate_to": "psychologist", "intervention": "swap_carer_or_call_psychologist",
+            "pattern": "new", "observation": "She cried out, pain in the left foot"}
+    assert t.teach_check_save("T1", form)["blocked"][-1]["guardrail_id"] == "SCOPE-clinical-escalation"
+    assert t.teach_check_save("T1", {**form, "escalate_to": "team_meeting"})["saved"]

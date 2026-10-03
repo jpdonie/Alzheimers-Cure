@@ -59,3 +59,18 @@ def test_live_scope_hint_on_observation_and_extension_not_in_live_api():
     r = c.post("/events", json={"field": "observation", "value": "she fell and hit her head", "form": {}}).json()
     assert r["scope"]["escalate"]
     assert c.get("/dp-sweep").status_code == 404      # DP simulator is not mounted on the live API
+
+
+def test_sessions_are_isolated_per_client():
+    a, b = {"x-session-id": "alice"}, {"x-session-id": "bob"}
+    c.post("/session", json={"mode": "capture"}, headers=a); c.post("/session", json={"mode": "capture"}, headers=b)
+    ea = c.post("/events", json={"field": "checks", "value": ["pain"], "delta": {"added": "pain"}, "form": {}}, headers=a).json()["event"]
+    assert c.post("/question", json={"event_id": ea["id"], "signals": OK}, headers=b).json()["reason"] == "unknown event"   # bob cannot see alice's event
+    c.post("/recording", json={"on": False}, headers=a)
+    assert c.post("/events", json={"field": "checks", "value": [], "form": {}}, headers=b).status_code == 200            # alice's off-the-record does not affect bob
+    assert c.get("/frame/" + ea["id"], headers=b).status_code == 404
+
+
+def test_debrief_requires_something_captured():
+    c.post("/session", json={"mode": "capture"}, headers={"x-session-id": "carol"})
+    assert c.post("/debrief/start", json={}, headers={"x-session-id": "carol"}).status_code == 409

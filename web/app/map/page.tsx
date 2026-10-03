@@ -19,7 +19,7 @@ function Frame({ id, form }: { id: string; form?: Record<string, unknown> }) {
 function ProvRow({ p }: { p: Provenance }) {
   return p.kind === "screen"
     ? <li><span className="chip border-teal">screen moment</span> event {String(p.event_id)} at {Number(p.ts).toFixed(0)}s</li>
-    : <li><span className="chip">transcript</span> {String(p.unit_id)} · {String(p.session)} · turns {(p.turn_ids as string[]).join(", ")} {p.verbatim ? "(verbatim span)" : "(dataset summary)"}: <i>“{String(p.span)}”</i></li>;
+    : <li><span className="chip">transcript</span> {String(p.unit_id)} · {String(p.session)} · turns {(p.turn_ids as string[]).join(", ")} {p.verbatim ? <>(verbatim span): <i>“{String(p.span)}”</i></> : <>(dataset summary, not a quotation): <i>{String(p.span)}</i></>}</li>;
 }
 
 export default function WorkMap() {
@@ -60,7 +60,7 @@ export default function WorkMap() {
                   <p className="text-sm">{s.rationale_seed}</p>
                 </div>
                 <div className="space-y-2">
-                  <h4 className="font-semibold">Guardrails</h4>
+                  <h4 className="font-semibold">Guardrails <span className="text-xs font-normal">(transcript evidence shown is for the rule, not for this exact guardrail)</span></h4>
                   {s.guardrails.map((g) => (
                     <div key={g.text} className="rounded-lg border border-amber bg-amber/10 p-2 text-sm">
                       <p>{g.text} <span className="chip">{g.state}</span></p>
