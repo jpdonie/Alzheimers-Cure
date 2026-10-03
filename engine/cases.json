@@ -1,0 +1,38 @@
+{
+  "capture_scenario": {
+    "id": "CAP-1",
+    "resident": "R-204",
+    "title": "Morning breakfast refused twice",
+    "facts": ["Resident R-204 (day 40 in the home) pushed the tray away twice this morning.", "Hearing aids are in the drawer, not in her ears.", "No complaint of pain was voiced. Second refusal today."],
+    "note": "Fake data. Handle it as you normally would; think aloud."
+  },
+  "teach_cases": [
+    {
+      "id": "T1", "resident": "R-311", "sealed": true,
+      "title": "Distress and refusal during washing",
+      "facts": ["Resident R-311 refused the morning wash for the 4th time today.", "She cried out when her feet were touched; the left foot looks swollen.", "Compression stockings are on the chair, not on her legs."],
+      "rule_ids": ["R1-somatic-first", "R3-repeat-escalate", "R2-interaction-first"],
+      "predict": {"question": "What is your next documented step?", "correct": "b",
+        "options": {"a": "Note 'agitation', try again in an hour with the same carer", "b": "Check feet, pain and other physical causes first, then decide who to involve", "c": "Offer a sedative so the wash can go ahead", "d": "Close the incident: it was already documented this morning"}},
+      "form_start": {"incident_type": "refusal_of_care", "occurrences_today": 4}
+    },
+    {
+      "id": "T2", "resident": "R-318", "sealed": true,
+      "title": "Newcomer keeps trying to leave",
+      "facts": ["Resident R-318 arrived 6 days ago.", "Stood at the front door twice this afternoon asking to 'go home'.", "Calmer when walked back to the lounge."],
+      "rule_ids": ["R6-exit-seeking"],
+      "predict": {"question": "How should this be handled in the record?", "correct": "c",
+        "options": {"a": "Log it as a refusal of care and retry the task later", "b": "Ask the doctor for a calming medication", "c": "Log it as exit-seeking and review the integration plan", "d": "No action needed, it will pass"}},
+      "form_start": {"incident_type": "exit_seeking", "occurrences_today": 2}
+    },
+    {
+      "id": "T3", "resident": "R-322", "sealed": true,
+      "title": "Restless in the evening, extra medication requested",
+      "facts": ["Resident R-322 paced the corridor between 18:00 and 20:00.", "A colleague suggests giving her PRN medication from the cabinet.", "She has not been seen by the nurse today."],
+      "rule_ids": ["R4-treatment-routing", "R1-somatic-first"],
+      "predict": {"question": "What would you do about the medication suggestion?", "correct": "d",
+        "options": {"a": "Give the PRN dose and document it", "b": "Give half the dose to be careful", "c": "Wait until the next shift and mention it verbally", "d": "Do not decide it yourself; raise it with the nurse who takes it to the coordinating physician"}},
+      "form_start": {"incident_type": "refusal_of_care", "occurrences_today": 1}
+    }
+  ]
+}

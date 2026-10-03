@@ -1,0 +1,180 @@
+{
+  "version": "demo-rules-1",
+  "note": "Curated from de-identified transcripts. Slot text paraphrases dataset rules; every source cites unit_id, turn id and either a verbatim span ('verbatim') or the dataset's unit summary ('summary'). Guardrail predicates are machine-checkable over sandbox form fields.",
+  "rules": [
+    {
+      "id": "R1-somatic-first",
+      "title": "Rule out body and basic needs before interpreting a refusal",
+      "risk": 3,
+      "triggers": ["checks", "interpretation", "incident_type"],
+      "slots": {
+        "context": {"text": "Resident refuses or is distressed during care (washing, eating, instructions).", "state": "hypothesized"},
+        "action": {"text": "Run a somatic / basic-needs / sensory check (pain, feet and skin, hunger or thirst, hearing aids, glasses, noise) before choosing a behavioural explanation or intervention.", "state": "hypothesized"},
+        "rationale": {"text": "Unrecognised pain, discomfort, unmet needs and sensory deficits drive behaviour in people who cannot verbalise them; blaming the disease first misses the cause.", "state": "hypothesized"},
+        "exceptions": [],
+        "guardrails": [
+          {"text": "Do not record a behavioural interpretation or a non-physical intervention for a refusal until a pain / physical-discomfort check is logged.", "state": "hypothesized"}
+        ],
+        "escalation": {"text": "", "state": "missing"}
+      },
+      "predicate": {
+        "severity": "block",
+        "message": "Pain / physical-discomfort check is not logged for this refusal.",
+        "all": [
+          {"field": "incident_type", "op": "eq", "value": "refusal_of_care"},
+          {"field": "checks", "op": "not_contains", "value": "pain"}
+        ]
+      },
+      "sources": [
+        {"unit_id": "KU-S13-20", "session": "S13", "turn_ids": ["S13-T0354"], "kind": "verbatim", "quote_turn": "S13-T0354", "quote_span": "First, clear everything that could be somatic, that could be related to the body, or the basic needs of the body.", "source_type": "Expert statement"},
+        {"unit_id": "KU-S13-20", "session": "S13", "turn_ids": ["S13-T0354"], "kind": "verbatim", "quote_turn": "S13-T0354", "quote_span": "Maybe that person is just not hearing me.", "source_type": "Expert statement"},
+        {"unit_id": "KU-S03-08", "session": "S03", "turn_ids": ["S03-T0072"], "kind": "verbatim", "quote_turn": "S03-T0072", "quote_span": "She's suffering in her feet. She's got edema. She's not wearing her compression stockings.", "source_type": "Expert statement"},
+        {"unit_id": "KU-S13-16", "session": "S13", "turn_ids": ["S13-T0335"], "kind": "verbatim", "quote_turn": "S13-T0335", "quote_span": "too much noise in the room, pain, etc.", "source_type": "Expert correction of interviewer"}
+      ],
+      "caution": "The ~50% somatic-trigger figure is the expert's recollection, not a cited study."
+    },
+    {
+      "id": "R2-interaction-first",
+      "title": "Review how care was approached; swap carer or call the psychologist before forcing care",
+      "risk": 2,
+      "triggers": ["intervention", "occurrences_today"],
+      "slots": {
+        "context": {"text": "Resident refuses with one carer on a given day.", "state": "hypothesized"},
+        "action": {"text": "Try a colleague with better rapport, or call the psychologist to de-escalate; document who intervened and what worked.", "state": "hypothesized"},
+        "rationale": {"text": "Rapport and the emotional climate of the interaction drive acceptance; refusals are often caused by how care is delivered.", "state": "hypothesized"},
+        "exceptions": [],
+        "guardrails": [
+          {"text": "Never force care through a refusal; retrying unchanged with the same carer repeatedly is not a strategy.", "state": "hypothesized"}
+        ],
+        "escalation": {"text": "Psychologist (on call in the morning).", "state": "hypothesized"}
+      },
+      "predicate": {
+        "severity": "warn",
+        "message": "Repeated refusal and the same approach is being retried unchanged.",
+        "all": [
+          {"field": "incident_type", "op": "eq", "value": "refusal_of_care"},
+          {"field": "intervention", "op": "eq", "value": "retry_later_same_carer"},
+          {"field": "occurrences_today", "op": "gte", "value": 2}
+        ]
+      },
+      "sources": [
+        {"unit_id": "KU-S03-12", "session": "S03", "turn_ids": ["S03-T0093"], "kind": "verbatim", "quote_turn": "S03-T0093", "quote_span": "I call in my colleague, and she doesn't get refusal, and the task is done.", "source_type": "Expert statement"},
+        {"unit_id": "KU-S13-16", "session": "S13", "turn_ids": ["S13-T0336"], "kind": "verbatim", "quote_turn": "S13-T0336", "quote_span": "it's the staff interaction with the residents.", "source_type": "Expert correction of interviewer"}
+      ],
+      "caution": ""
+    },
+    {
+      "id": "R3-repeat-escalate",
+      "title": "Repeated refusal goes to the team meeting; route by root cause",
+      "risk": 3,
+      "triggers": ["occurrences_today", "escalate_to"],
+      "slots": {
+        "context": {"text": "Repeated refusal (for example more than 3 times a day of eating or drinking).", "state": "hypothesized"},
+        "action": {"text": "Bring it to the daily team meeting; the team looks for the root cause (physical, psychological, or both).", "state": "hypothesized"},
+        "rationale": {"text": "Refusal is a symptom with heterogeneous causes; diagnosis precedes assignment.", "state": "hypothesized"},
+        "exceptions": [],
+        "guardrails": [
+          {"text": "Do not close a repeated refusal alone: it must reach the team meeting. Revise the care plan only if the change is durable.", "state": "hypothesized"}
+        ],
+        "escalation": {"text": "Physical cause: care staff (and doctor via nurse). Psychological cause without physical: psychologist, with activity staff.", "state": "hypothesized"}
+      },
+      "predicate": {
+        "severity": "block",
+        "message": "Refusal has happened 3+ times today but nothing is escalated.",
+        "all": [
+          {"field": "occurrences_today", "op": "gte", "value": 3},
+          {"field": "escalate_to", "op": "eq", "value": "none"}
+        ]
+      },
+      "sources": [
+        {"unit_id": "KU-S03-10", "session": "S03", "turn_ids": ["S03-T0077"], "kind": "verbatim", "quote_turn": "S03-T0077", "quote_span": "if it's severe enough, it would be brought up in a staff meeting", "source_type": "Expert statement"},
+        {"unit_id": "KU-S03-10", "session": "S03", "turn_ids": ["S03-T0079"], "kind": "verbatim", "quote_turn": "S03-T0079", "quote_span": "Any situation is either linked to your physical problem or a neuropsychological problem.", "source_type": "Expert statement"}
+      ],
+      "caution": ""
+    },
+    {
+      "id": "R4-treatment-routing",
+      "title": "Carers never change treatment; route via nurse, then coordinating physician",
+      "risk": 3,
+      "triggers": ["intervention", "escalate_to"],
+      "slots": {
+        "context": {"text": "A medication or treatment change seems needed or is requested.", "state": "hypothesized"},
+        "action": {"text": "Raise it with the nurse; the nurse takes it to the coordinating physician, who speaks to the treating doctor.", "state": "hypothesized"},
+        "rationale": {"text": "Medical authority is distributed: treating doctors prescribe, the coordinating physician orchestrates, the home cannot direct external doctors.", "state": "hypothesized"},
+        "exceptions": [],
+        "guardrails": [
+          {"text": "A carer does not give or change medication on their own judgement; medication changes remain a medical decision.", "state": "hypothesized"}
+        ],
+        "escalation": {"text": "Nurse -> coordinating physician -> treating doctor.", "state": "hypothesized"}
+      },
+      "predicate": {
+        "severity": "block",
+        "message": "Medication is chosen without routing it to a nurse or physician.",
+        "all": [
+          {"field": "intervention", "op": "eq", "value": "give_prn_medication"},
+          {"field": "escalate_to", "op": "not_in", "value": ["nurse", "coordinating_physician"]}
+        ]
+      },
+      "sources": [
+        {"unit_id": "KU-S10-02", "session": "S10", "turn_ids": ["S10-T0147"], "kind": "summary", "quote_turn": null, "quote_span": "when nurses raise something, [the coordinating physician] speaks to the treating doctors about adjusting treatment", "source_type": "Expert statement"},
+        {"unit_id": "KU-S03-01", "session": "S03", "turn_ids": ["S03-T0014"], "kind": "summary", "quote_turn": null, "quote_span": "Medication changes remain a medical decision", "source_type": "Expert correction of interviewer"}
+      ],
+      "caution": ""
+    },
+    {
+      "id": "R5-habitual-vs-new",
+      "title": "Say whether the behaviour is new or habitual before escalating",
+      "risk": 2,
+      "triggers": ["pattern", "escalate_to"],
+      "slots": {
+        "context": {"text": "A behaviour is about to be escalated.", "state": "hypothesized"},
+        "action": {"text": "Classify the behaviour as habitual or new first.", "state": "hypothesized"},
+        "rationale": {"text": "Whether a behaviour is new or habitual changes its meaning and urgency.", "state": "hypothesized"},
+        "exceptions": [],
+        "guardrails": [],
+        "escalation": {"text": "", "state": "missing"}
+      },
+      "predicate": {
+        "severity": "warn",
+        "message": "Escalating without saying whether the behaviour is new or habitual.",
+        "all": [
+          {"field": "escalate_to", "op": "not_in", "value": ["none"]},
+          {"field": "pattern", "op": "in", "value": ["unsure", ""]}
+        ]
+      },
+      "sources": [
+        {"unit_id": "KU-S13-18", "session": "S13", "turn_ids": ["S13-T0348"], "kind": "summary", "quote_turn": null, "quote_span": "frequency, whether the behaviour is habitual or not", "source_type": "Expert statement"}
+      ],
+      "caution": ""
+    },
+    {
+      "id": "R6-exit-seeking",
+      "title": "Exit-seeking is not refusal: rework integration",
+      "risk": 3,
+      "triggers": ["incident_type", "intervention"],
+      "slots": {
+        "context": {"text": "Resident tries to leave, mostly in the first weeks after admission.", "state": "hypothesized"},
+        "action": {"text": "Review and intensify the integration plan; do not treat it as a refusal.", "state": "hypothesized"},
+        "rationale": {"text": "Exit-seeking expresses disorientation and lack of belonging; it fades with integration.", "state": "hypothesized"},
+        "exceptions": [],
+        "guardrails": [
+          {"text": "Do not file exit-seeking under the refusal pathway or answer it with a refusal strategy.", "state": "hypothesized"}
+        ],
+        "escalation": {"text": "", "state": "missing"}
+      },
+      "predicate": {
+        "severity": "block",
+        "message": "Exit-seeking is being handled with a refusal strategy instead of an integration review.",
+        "all": [
+          {"field": "incident_type", "op": "eq", "value": "exit_seeking"},
+          {"field": "intervention", "op": "not_in", "value": ["integration_plan_review"]}
+        ]
+      },
+      "sources": [
+        {"unit_id": "KU-S13-17", "session": "S13", "turn_ids": ["S13-T0346"], "kind": "verbatim", "quote_turn": "S13-T0346", "quote_span": "It's just not the same approach, same strategy at all.", "source_type": "Expert correction of interviewer"},
+        {"unit_id": "KU-S13-17", "session": "S13", "turn_ids": ["S13-T0346"], "kind": "verbatim", "quote_turn": "S13-T0346", "quote_span": "are very often people who are not sufficiently integrated into their home", "source_type": "Expert correction of interviewer"}
+      ],
+      "caution": ""
+    }
+  ]
+}
