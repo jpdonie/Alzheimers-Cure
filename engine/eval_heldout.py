@@ -107,10 +107,10 @@ def pick_threshold(scores_correct: list[tuple[float, bool, bool]]) -> float:
     return tau
 
 
-def run(rag: bool = True):
+def run():
     units = eligible(load_units()); by_id = {u.unit_id: u for u in units}
     cases = json.loads(CASES.read_text()); judged = json.loads(JUDGED.read_text())
-    rows = {"bm25": [], "tfidf": [], "care_map": [], "care_map+scope": [], "rag_llm": []}
+    rows = {"bm25": [], "tfidf": [], "tfidf+scope": [], "care_map": [], "care_map+scope": []}
     for c in cases:
         folds = [c["fold"]] if c["fold"] != "ALL" else list(FOLDS)
         for f in folds:
@@ -127,8 +127,9 @@ def run(rag: bool = True):
                        "top1_ok": bool(top and top[0] in rel), "rank": rank, "scope_escalate": sc["escalate"]}
                 rows[name].append(rec)
                 if name == "care_map": rows["care_map+scope"].append(rec)
+                if name == "tfidf": rows["tfidf+scope"].append(rec)   # the fail-closed scope filter is retrieval-independent; show it on the strongest baseline too
     res = {"note": "LLM-adjudicated labels (not clinician-reviewed); small corpus; indicative, not conclusive.", "folds": FOLDS, "n_queries": len(cases), "systems": {}}
-    for name in ["bm25", "tfidf", "care_map", "care_map+scope"]:
+    for name in ["bm25", "tfidf", "tfidf+scope", "care_map", "care_map+scope"]:
         res["systems"][name] = score_system(rows[name], with_scope=name.endswith("+scope"))
     res["usage"] = llm.usage_summary()
     RESULTS.write_text(json.dumps(res, indent=1)); print(json.dumps(res["systems"], indent=1))

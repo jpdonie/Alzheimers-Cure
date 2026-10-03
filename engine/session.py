@@ -3,7 +3,7 @@ import json, os, time, uuid
 from copy import deepcopy
 from pathlib import Path
 
-from . import guard, slots as S, llm
+from . import guard, scope, slots as S, llm
 from .confidence import facets
 from .mastery import Mastery
 from .privacy import redact
@@ -24,6 +24,10 @@ def load_rules():
 
 def load_cases():
     return json.loads((HERE / "cases.json").read_text())
+
+
+class Conflict(Exception):
+    """Impossible state transition or write while recording is off; the API maps this to HTTP 409."""
 
 
 def nid(p): return f"{p}-{uuid.uuid4().hex[:6]}"
@@ -56,6 +60,9 @@ class Session:
         self.corrections = []; self.drift_log = []
         self.mastery = Mastery([r["id"] for r in self.rules]); self.attempts = []; self.done_cases = set()
         self.log = []
+        self.recording = True            # Off the record flips this server-side; late writes are rejected
+        self.predicted = set()           # teach cases the learner made a prediction on
+        self.artifact_version = None     # Work Map hash frozen when Teach starts
 
     # ---------- helpers
     def rule(self, rid): return next(r for r in self.rules if r["id"] == rid)
@@ -70,8 +77,21 @@ class Session:
         except Exception:
             pass
 
+    def _need_recording(self):
+        if not self.recording:
+            raise Conflict("off the record: collection is stopped")
+
+    def set_recording(self, on: bool) -> dict:
+        self.recording = bool(on)
+        return {"recording": self.recording}
+
+    def freeze(self):
+        """Teach consumes this exact artifact: later edits to the source session cannot change evaluation."""
+        self.artifact_version = self.map_version()
+
     # ---------- capture
     def add_event(self, ev: dict) -> dict:
+        self._need_recording()
         ev = {**ev, "id": nid("E"), "ts": self.now()}
         ev["text"] = describe(ev)
         self.events.append(ev)
@@ -91,6 +111,7 @@ class Session:
 
     def add_frame(self, event_id: str, data_url: str) -> str | None:
         """Store the cropped frame; a vision model confirms/captions the change for the decision-relevant events only."""
+        self._need_recording()
         self.frames[event_id] = data_url
         ev = self.ev(event_id)
         if not ev or ev.get("field") not in self.VISION_FIELDS or sum(1 for e in self.events if e.get("vision")) >= self.VISION_BUDGET:
@@ -117,6 +138,7 @@ class Session:
 
     def propose_question(self, event_id: str, signals: dict) -> dict:
         """Server-side gate. signals: voice_silent, hands_still, screen_stable. Returns {question|None, reason, gate}."""
+        self._need_recording()
         gate = {"voice_silent": bool(signals.get("voice_silent")), "hands_still": bool(signals.get("hands_still")),
                 "screen_stable": bool(signals.get("screen_stable"))}
         asked = [q for q in self.questions if q["phase"] == "capture"]
@@ -127,7 +149,7 @@ class Session:
         if ev is None:
             return {"question": None, "reason": "unknown event", "gate": gate}
         latest = self.events[-1]
-        gate["fresh"] = (ev["id"] == latest["id"]) or (self.now() - ev["ts"] <= STALE)
+        gate["fresh"] = ev["id"] == latest["id"] and (self.now() - ev["ts"] <= STALE)   # stale or superseded events are never asked about
         if not all(gate.values()):
             return {"question": None, "reason": "gate closed: " + ", ".join(k for k, v in gate.items() if not v), "gate": gate}
         if any(q for q in self.questions if q["event_id"] == event_id):
@@ -163,7 +185,10 @@ class Session:
                     "threshold": self.drift.extract_threshold(text) if self.drift and rule["id"] == "R3-repeat-escalate" and "time" in low else None}
 
     def answer(self, qid: str, text: str, ts: float | None = None) -> dict:
+        self._need_recording()
         q = next(x for x in self.questions if x["id"] == qid)
+        if q["answered"]:
+            raise Conflict("question already answered")
         rule = self.rule(q["rule_id"]); ts = ts if ts is not None else self.now()
         clean, nred = redact(text)
         before = S.snapshot_states([rule])[rule["id"]]
@@ -182,15 +207,14 @@ class Session:
                         d["disposition"] = "exception-or-change (expert explained)"; d["quote"] = clean
                 rule["conflicted"] = False
             v = rule["slots"][slot]
-            for it in (v if isinstance(v, list) else [v]):
-                it["state"] = new_state
-                it.setdefault("live", []).append(prov)
-            if slot == "exceptions":
-                for t in ex.get("exceptions") or [clean]:
-                    v.append({"text": t, "state": "expert_stated", "live": [prov]})
-            if slot == "guardrails":
-                for t in ex.get("guardrails") or ([clean] if not v else []):
-                    v.append({"text": t, "state": "expert_stated", "live": [prov]})
+            if isinstance(v, list):
+                # Only what the expert actually said becomes live evidence; seeded items keep their own (hypothesized) state.
+                texts = ex.get("exceptions" if slot == "exceptions" else "guardrails") or [clean]
+                for t in texts:
+                    v.append({"text": t, "state": new_state, "live": [prov]})
+            else:
+                v["state"] = new_state
+                v.setdefault("live", []).append(prov)
             if slot == "escalation" and ex.get("escalation"):
                 v["live_text"] = ex["escalation"]
             if ex.get("slot_text") and not isinstance(v, list):
@@ -260,8 +284,7 @@ class Session:
             gs = []
             for g in r["slots"]["guardrails"]:
                 gs.append({"text": g["text"], "state": g["state"],
-                           "expert_words": [{"kind": "screen", **p} for p in g.get("live", [])] or
-                                           [{"kind": "transcript", "unit_id": s["unit_id"], "turn": s["quote_turn"], "quote": s["quote_span"]} for s in r["sources"][:1]]})
+                           "expert_words": [{"kind": "screen", **p} for p in g.get("live", [])] or self._source_evidence(r)[:1]})
             unresolved = [s for s in S.SLOTS if S.slot_state(r, s) in ("missing", "hypothesized", "conflicted")]
             steps.append({"step_id": f"STEP-{rid}", "rule_id": rid, "title": r["title"], "screen_moment": {"event_id": first["id"], "ts": first["ts"],
                           "text": first["text"], "form": first.get("form"), "frame": first["id"] in self.frames, "vision": first.get("vision")},
@@ -276,7 +299,19 @@ class Session:
                           "versions": r.get("versions", [])})
         steps.sort(key=lambda s: s["screen_moment"]["ts"])
         for i, s in enumerate(steps): s["n"] = i + 1
-        return {"schema": "workmap/1", "map_version": self.map_version(), "steps": steps, "drift": self.drift_log, "seeded_only_rules": [r["id"] for r in self.rules if r["id"] not in by_rule]}
+        asked_events = {q["event_id"] for q in self.questions if q["event_id"]}
+        unexplained = [{"event_id": e["id"], "ts": e["ts"], "text": e["text"]} for e in self.events if e["id"] not in asked_events and e.get("field") != "save"]
+        return {"schema": "workmap/1", "map_version": self.map_version(), "steps": steps, "unexplained_events": unexplained, "drift": self.drift_log, "seeded_only_rules": [r["id"] for r in self.rules if r["id"] not in by_rule]}
+
+    @staticmethod
+    def _source_evidence(r) -> list[dict]:
+        """Transcript evidence for a rule. Only verbatim spans are quotations; dataset summaries are labelled as such."""
+        out = []
+        for s in r["sources"]:
+            base = {"unit_id": s["unit_id"], "turn": s["quote_turn"], "session": s["session"]}
+            out.append({"kind": "transcript", "quote": s["quote_span"], **base} if s["kind"] == "verbatim"
+                       else {"kind": "dataset_summary", "summary": s["quote_span"], **base})
+        return sorted(out, key=lambda e: e["kind"] != "transcript")   # verbatim first
 
     def teachback_text(self) -> dict:
         wm = self.workmap()["steps"]
@@ -293,6 +328,8 @@ class Session:
 
     def confirm(self, rule_id: str, ok: bool, correction: str | None = None) -> dict:
         r = self.rule(rule_id)
+        if not any(q["rule_id"] == rule_id and q["phase"] == "capture" and q["event_id"] for q in self.questions):
+            raise Conflict("nothing was captured live for this rule yet")
         if ok:
             self.teachback[rule_id] = "confirmed"
             for s in S.SLOTS:
@@ -351,6 +388,9 @@ class Session:
     def teach_predict(self, case_id: str, option: str) -> dict:
         c = next(x for x in self.cases["teach_cases"] if x["id"] == case_id)
         ok = option == c["predict"]["correct"]
+        if case_id in self.predicted:
+            raise Conflict("prediction already recorded for this case")
+        self.predicted.add(case_id)
         for rid in c["rule_ids"]:
             self.mastery.update(rid, ok)
         self.attempts.append({"case": case_id, "kind": "predict", "option": option, "correct": ok, "ts": self.now()})
@@ -372,13 +412,18 @@ class Session:
     def _explain(self, r) -> dict:
         live = self._live_moments(r)
         words = [{"kind": "screen", "quote": m["quote"], "ts": m["ts"], "event_id": m["event_id"], "frame": m["frame"]} for m in live[:2]]
-        words += [{"kind": "transcript", "quote": s["quote_span"], "unit_id": s["unit_id"], "turn": s["quote_turn"], "verbatim": s["kind"] == "verbatim"}
-                  for s in r["sources"]][:2]
+        src = self._source_evidence(r)
+        words += [e for e in src if e["kind"] == "transcript"][:2]
         return {"rule_id": r["id"], "title": r["title"], "expert_words": words,
+                "dataset_summaries": [e for e in src if e["kind"] == "dataset_summary"][:2],
                 "screen_moment": {"event_id": live[0]["event_id"], "ts": live[0]["ts"], "frame": live[0]["frame"]} if live else None}
 
     def teach_check_save(self, case_id: str, form: dict) -> dict:
         c = next(x for x in self.cases["teach_cases"] if x["id"] == case_id)
+        if case_id not in self.predicted:
+            raise Conflict("make a prediction before saving")
+        if self.artifact_version and self.map_version() != self.artifact_version:
+            raise Conflict("the Work Map changed after Teach started")
         fired = guard.check_form(self.rules, form)
         blocked = [f for f in fired if f["severity"] == "block"]
         first = not any(a["case"] == case_id and a["kind"] == "save" for a in self.attempts)
@@ -387,6 +432,16 @@ class Session:
             r = self.rule(b["rule_id"]); ex = self._explain(r)
             res["blocked"].append({**b, "explain": ex, "guardrail_id": r["id"],
                                    "evidence_class": "live expert capture" if ex["screen_moment"] else "transcript only (not yet confirmed live)"})
+        sc = scope.classify(form.get("observation", ""))
+        if sc["escalate"] and form.get("escalate_to") not in ("nurse", "coordinating_physician"):   # fail closed on clinical language
+            blocked.append({"rule_id": "SCOPE-clinical-escalation"})
+            res["blocked"].append({"rule_id": "SCOPE-clinical-escalation", "title": "A clinical concern must reach a qualified human", "severity": "block",
+                "message": sc["reason"], "guardrail_id": "SCOPE-clinical-escalation", "evidence_class": "fail-closed safety lexicon (not learned from the expert)",
+                "trace": [{"field": "observation", "op": "mentions", "expected": "a clinical term", "observed": sc["term"], "met": True},
+                          {"field": "escalate_to", "op": "in", "expected": ["nurse", "coordinating_physician"], "observed": form.get("escalate_to", ""), "met": False}],
+                "text": "observation mentions a clinical term AND escalate_to not in ['nurse', 'coordinating_physician']",
+                "explain": {"rule_id": "SCOPE", "title": "Clinical scope", "expert_words": [], "dataset_summaries": [], "screen_moment": None}})
+        res["saved"] = not blocked
         self.attempts.append({"case": case_id, "kind": "save", "blocked": [b["rule_id"] for b in blocked], "first": first, "ts": self.now()})
         if first:
             for rid in c["rule_ids"]:

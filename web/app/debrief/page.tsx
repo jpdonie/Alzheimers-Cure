@@ -80,7 +80,7 @@ export default function Debrief() {
                     <button className="btn btn-ghost" onClick={() => decide(s.rule_id, true)}>Yes, that is it</button>
                     <input className="flex-1 rounded border border-line px-2 py-1" placeholder="Correct it: what is missing or wrong?" value={fix[s.rule_id] ?? ""} onChange={(e) => setFix((f) => ({ ...f, [s.rule_id]: e.target.value }))} />
                     <button className="btn btn-ghost" disabled={!fix[s.rule_id]} onClick={() => decide(s.rule_id, false)}>Correct it</button>
-                    {verdict[s.rule_id] && <span className="chip bg-sage">{verdict[s.rule_id] === "confirmed" ? "confirmed by expert" : "corrected by expert, rule updated"}</span>}
+                    {verdict[s.rule_id] && <span className="chip bg-sage">{verdict[s.rule_id] === "confirmed" ? "confirmed by expert" : "correction saved as an expert exception on this rule"}</span>}
                   </div>
                 </div>))}
             </div>)}

@@ -21,7 +21,8 @@ function Intercept({ blocks, onClose }: { blocks: Block[]; onClose: () => void }
               <tbody>{b.trace.map((t, i) => <tr key={i}><td>{t.field}</td><td>{t.op} {JSON.stringify(t.expected)}</td><td>{JSON.stringify(t.observed)}</td><td>{t.met ? "matched" : "not matched"}</td></tr>)}</tbody></table>
             <p className="font-mono text-xs">predicate: {b.text}</p>
             {b.explain.expert_words.map((w, i) => (
-              <blockquote key={i} className="quote">“{w.quote}” <span className="text-xs">({w.kind === "screen" ? "expert, live" : `transcript ${w.unit_id} ${w.verbatim ? "verbatim" : "summary"}`})</span></blockquote>))}
+              <blockquote key={i} className="quote">“{w.quote}” <span className="text-xs">({w.kind === "screen" ? "expert, live" : `transcript ${w.unit_id}, verbatim`})</span></blockquote>))}
+            {b.explain.dataset_summaries.map((d, i) => <p key={i} className="text-sm"><span className="chip">dataset summary, not a quotation</span> {d.summary} ({d.unit_id})</p>)}
             {b.explain.screen_moment
               ? <div><p className="text-sm font-semibold">Replay: the expert&apos;s screen moment ({b.explain.screen_moment.ts.toFixed(0)}s)</p><img src={api.frameUrl(b.explain.screen_moment.event_id)} alt="Expert screen moment" className="max-h-48 rounded border" onError={(e) => ((e.target as HTMLElement).style.display = "none")} /></div>
               : <p className="text-sm text-ink/70">No live screen moment yet for this rule: the evidence is from transcripts.</p>}
@@ -38,7 +39,7 @@ export default function Teach() {
   const [c, setC] = useState<Case | null>(null);
   const [form, setForm] = useState<Form>(EMPTY);
   const [picked, setPicked] = useState<string>("");
-  const [pred, setPred] = useState<{ correct: boolean } | null>(null);
+  const [pred, setPred] = useState<{ correct: boolean | null } | null>(null);
   const [blocks, setBlocks] = useState<Block[] | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [err, setErr] = useState("");
@@ -53,8 +54,10 @@ export default function Teach() {
   useEffect(() => { api.session("teach").then(() => api.cases()).then((x) => { setCases(x.teach); return open("T1"); }).catch(() => setErr("Engine not reachable on :8000")); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const choose = async (k: string) => {
-    setPicked(k); const r = await api.predict(caseId, k); setPred(r);
-    if (!r.correct) voice.tell("SAY", "Not quite. Hold that thought: I will show you how the expert reasons when you try to save.");
+    setPicked(k);
+    const r = await api.predict(caseId, k).catch(() => ({ correct: null }));   // 409: this case already has a recorded prediction
+    setPred(r);
+    if (r.correct === false) voice.tell("SAY", "Not quite. Hold that thought: I will show you how the expert reasons when you try to save.");
   };
   const save = async () => {
     const r = await api.checkSave(caseId, form); setResult(r);
@@ -66,7 +69,7 @@ export default function Teach() {
     <div className="grid gap-4 lg:grid-cols-5">
       {err && <p className="text-coral">{err}</p>}
       <section className="space-y-3 lg:col-span-3">
-        {c && <CareRecordSandbox resident={c.resident} facts={c.facts} form={form} lockedType onChange={(n) => setForm(n)} onSave={save} saveLabel="Save record" />}
+        {c && <CareRecordSandbox resident={c.resident} facts={c.facts} form={form} lockedType onChange={(n) => setForm(n)} onSave={() => (picked ? save() : setErr("Make your prediction first (right panel), then save."))} saveLabel="Save record" />}
       </section>
       <aside className="space-y-3 lg:col-span-2">
         <div className="card space-y-2">
@@ -77,7 +80,7 @@ export default function Teach() {
             <p className="font-semibold">Predict: {c.predict.question}</p>
             {Object.entries(c.predict.options).map(([k, v]) => (
               <button key={k} disabled={!!picked} onClick={() => choose(k)} className={`mt-1 block w-full rounded-lg border p-2 text-left ${picked === k ? (pred?.correct ? "border-teal bg-teal/10" : "border-coral bg-coral/10") : "border-line bg-white"}`}>{k.toUpperCase()}. {v}</button>))}
-            {pred && <p className="mt-1 text-sm">{pred.correct ? "That matches the expert." : "Not what the expert would do. Try the record, I will stop you before it is saved."}</p>}
+            {pred && <p className="mt-1 text-sm">{pred.correct === null ? "Prediction already recorded for this case." : pred.correct ? "That matches the expert." : "Not what the expert would do. Try the record, I will stop you before it is saved."}</p>}
           </div>}
         </div>
         {result?.saved && (

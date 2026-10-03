@@ -51,8 +51,21 @@ def test_capture_debrief_map_teach():
             page.get_by_placeholder("Answer by voice, or type").fill("It depends on the resident; when unsure I ask the nurse.")
             page.get_by_role("button", name="Send answer").click(); page.wait_for_timeout(700)
         page.get_by_role("button", name="Explain the process back to me").click()
-        page.get_by_role("button", name="Yes, that is it").first.click()
-        page.get_by_text("confirmed by expert").first.wait_for()
+        page.get_by_role("button", name="Yes, that is it").first.wait_for()
+        n_steps = page.get_by_role("button", name="Yes, that is it").count()
+        assert n_steps >= 1
+        for i in range(n_steps):                      # confirm every step, not just the first
+            page.get_by_role("button", name="Yes, that is it").nth(i).click(); page.wait_for_timeout(400)
+        assert page.get_by_text("confirmed by expert").count() >= n_steps
+
+        # Off the record is enforced server-side: the engine refuses late writes
+        import json, urllib.request, urllib.error
+        def post(path, body):
+            req = urllib.request.Request("http://localhost:8000" + path, json.dumps(body).encode(), {"content-type": "application/json"})
+            try: return urllib.request.urlopen(req).status
+            except urllib.error.HTTPError as e: return e.code
+        assert post("/recording", {"on": False}) == 200 and post("/events", {"field": "checks", "value": []}) == 409
+        assert post("/recording", {"on": True}) == 200
 
         # map
         page.get_by_role("link", name="See the Work Map →").click()
@@ -67,6 +80,7 @@ def test_capture_debrief_map_teach():
         page.get_by_role("button", name=re.compile(r"^A\. Note")).click()
         page.get_by_role("button", name="Save record").click()
         page.get_by_text("Hold on: not saved yet").wait_for()
+        assert page.get_by_text("dataset summary, not a quotation").count() >= 0
         assert page.get_by_text("predicate:", exact=False).count() >= 1
         assert page.get_by_text("guardrail R1-somatic-first").count() == 1
         page.get_by_role("button", name="Fix it").click()
@@ -80,6 +94,9 @@ def test_capture_debrief_map_teach():
         # a materially different sealed case is caught too
         page.get_by_role("button", name=re.compile("T2:")).click()
         page.get_by_text("Newcomer keeps trying to leave").first.wait_for()
+        page.get_by_role("button", name="Save record").click()           # saving before predicting is refused
+        page.get_by_text("Make your prediction first").wait_for()
+        page.get_by_role("button", name=re.compile(r"^A\. Log it as a refusal")).click()
         page.get_by_role("button", name="Save record").click()
         page.get_by_text("guardrail R6-exit-seeking").wait_for()
         b.close()

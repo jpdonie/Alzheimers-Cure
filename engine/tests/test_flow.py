@@ -96,6 +96,7 @@ def test_debrief_gives_three_new_followups_and_teachback():
 def test_teach_blocks_before_save_then_allows_after_fix_and_updates_mastery():
     s = Session("teach")
     bad = {"incident_type": "refusal_of_care", "checks": [], "occurrences_today": 4, "escalate_to": "none", "intervention": "retry_later_same_carer"}
+    s.teach_predict("T1", "a")
     r = s.teach_check_save("T1", bad)
     assert not r["saved"] and {b["rule_id"] for b in r["blocked"]} >= {"R1-somatic-first", "R3-repeat-escalate"}
     assert r["blocked"][0]["explain"]["expert_words"]
@@ -108,6 +109,7 @@ def test_teach_blocks_before_save_then_allows_after_fix_and_updates_mastery():
 
 def test_unseen_exit_seeking_case_is_caught():
     s = Session("teach")
+    s.teach_predict("T2", "a")
     r = s.teach_check_save("T2", {"incident_type": "exit_seeking", "intervention": "retry_later_same_carer", "checks": [], "occurrences_today": 2, "escalate_to": "none"})
     assert {b["rule_id"] for b in r["blocked"]} == {"R6-exit-seeking"}
 
@@ -140,3 +142,88 @@ def test_vision_caption_is_budgeted_and_degrades_without_provider(monkeypatch):
     assert cap and "Smith" not in cap and e2["id"] in s2.frames
     e3 = s2.add_event({"field": "observation", "value": "x", "form": {}})["event"]
     assert s2.add_frame(e3["id"], "data:image/jpeg;base64,AAAA") is None   # not a decision-relevant field
+
+
+def test_seeded_guardrails_are_not_relabelled_as_expert_stated():
+    s = Session("capture")
+    e = s.add_event({"field": "intervention", "value": "give_prn_medication", "form": {}})["event"]
+    q = s._mk_question(s.rule("R4-treatment-routing"), "guardrails", 0, e)       # a guardrail-slot question, whichever the ranker picks
+    seeded = [g["text"] for g in s.rule(q["rule_id"])["slots"]["guardrails"]]
+    s.answer(q["id"], "Never alone; the nurse decides every time.")
+    items = s.rule(q["rule_id"])["slots"]["guardrails"]
+    for g in items:
+        if g["text"] in seeded:
+            assert g["state"] == "hypothesized" and not g.get("live")      # untouched seed
+    assert any(g.get("live") and g["state"] == "expert_stated" for g in items)  # only the new item carries live provenance
+
+
+def test_dataset_summaries_are_never_presented_as_quotations():
+    s = Session("teach")
+    ex = s._explain(s.rule("R4-treatment-routing"))          # R4 sources are dataset summaries only
+    assert not [w for w in ex["expert_words"] if w["kind"] == "transcript"]
+    assert ex["dataset_summaries"] and all("summary" in d for d in ex["dataset_summaries"])
+    ex1 = s._explain(s.rule("R1-somatic-first"))
+    assert ex1["expert_words"] and all(w["kind"] in ("screen", "transcript") for w in ex1["expert_words"])
+
+
+def test_off_the_record_stops_collection_server_side():
+    import pytest
+    from engine.session import Conflict
+    s = Session("capture")
+    e = s.add_event({"field": "checks", "value": ["pain"], "delta": {"added": "pain"}, "form": {}})["event"]
+    s.set_recording(False)
+    for call in (lambda: s.add_event({"field": "checks", "value": [], "form": {}}), lambda: s.add_frame(e["id"], "data:image/jpeg;base64,AA"),
+                 lambda: s.propose_question(e["id"], OK)):
+        with pytest.raises(Conflict):
+            call()
+    s.set_recording(True)
+    assert s.propose_question(e["id"], OK)["question"] is not None
+
+
+def test_superseded_event_is_not_asked_about():
+    s = Session("capture")
+    old = s.add_event({"field": "checks", "value": ["pain"], "delta": {"added": "pain"}, "form": {}})["event"]
+    s.add_event({"field": "intervention", "value": "give_prn_medication", "form": {}})
+    r = s.propose_question(old["id"], OK)
+    assert r["question"] is None and "fresh" in r["reason"]
+
+
+def test_impossible_transitions_are_rejected():
+    import pytest
+    from engine.session import Conflict
+    s = Session("capture")
+    e = s.add_event({"field": "intervention", "value": "give_prn_medication", "form": {}})["event"]
+    q = s.propose_question(e["id"], OK)["question"]; s.answer(q["id"], "The nurse decides.")
+    with pytest.raises(Conflict): s.answer(q["id"], "again")                       # double submission
+    untouched = next(r["id"] for r in s.rules if not any(x["rule_id"] == r["id"] and x["phase"] == "capture" for x in s.questions))
+    with pytest.raises(Conflict): s.confirm(untouched, True)                       # nothing captured for that rule
+    t = Session("teach")
+    with pytest.raises(Conflict): t.teach_check_save("T1", {})                     # save before prediction
+    t.teach_predict("T1", "b")
+    with pytest.raises(Conflict): t.teach_predict("T1", "a")                       # one prediction per case
+
+
+def test_teach_consumes_a_frozen_artifact():
+    import pytest
+    from engine.session import Conflict
+    t = Session("teach"); t.freeze(); t.teach_predict("T1", "b")
+    t.rule("R1-somatic-first")["slots"]["guardrails"].append({"text": "tampered", "state": "expert_stated"})
+    with pytest.raises(Conflict):
+        t.teach_check_save("T1", {"incident_type": "refusal_of_care", "checks": []})
+
+
+def test_scope_blocks_clinical_language_without_human_escalation():
+    t = Session("teach"); t.teach_predict("T1", "b")
+    ok_form = {"incident_type": "refusal_of_care", "checks": ["pain"], "occurrences_today": 1, "escalate_to": "none", "intervention": "swap_carer_or_call_psychologist", "pattern": "new",
+               "observation": "Resident choking on food during lunch"}
+    r = t.teach_check_save("T1", ok_form)
+    assert not r["saved"] and r["blocked"][-1]["guardrail_id"] == "SCOPE-clinical-escalation"
+    r2 = t.teach_check_save("T1", {**ok_form, "escalate_to": "nurse"})
+    assert r2["saved"]
+
+
+def test_workmap_lists_demonstrated_events_without_explanations():
+    s = Session("capture")
+    s.add_event({"field": "observation", "value": "refuses tray", "form": {}})
+    wm = s.workmap()
+    assert wm["unexplained_events"] and wm["unexplained_events"][0]["text"].startswith("changed observation")

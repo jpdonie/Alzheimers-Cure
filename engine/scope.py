@@ -8,4 +8,4 @@ ESCALATE = re.compile(r"\b(medicat\w*|dose|dosage|tablets?|pills?|sedat\w*|prn|p
 
 def classify(text: str) -> dict:
     m = ESCALATE.search(text)
-    return {"escalate": bool(m), "reason": f"mentions '{m.group(0)}': a qualified clinician must decide" if m else ""}
+    return {"escalate": bool(m), "term": m.group(0) if m else "", "reason": f"mentions '{m.group(0)}': a qualified clinician must decide" if m else ""}

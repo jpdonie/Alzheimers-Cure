@@ -14,19 +14,20 @@ export type Question = {
 };
 export type Gate = Record<string, boolean>;
 export type Provenance = Record<string, unknown> & { kind: string };
+export type Evidence = { kind: string; quote?: string; summary?: string; unit_id?: string; ts?: number };
 export type Step = {
   n: number; step_id: string; rule_id: string; title: string; decision: string;
   screen_moment: { event_id: string; ts: number; text: string; form?: Partial<Form>; frame: boolean; vision?: string | null };
   reason: { text: string; ts: number; event_id: string; slot: string }[];
   rationale_seed: string; exceptions: { text: string; state: string }[];
-  guardrails: { text: string; state: string; expert_words: Provenance[] }[];
+  guardrails: { text: string; state: string; expert_words: Evidence[] }[];
   escalation: string; unresolved_slots: string[]; teach_back: string; provenance: Provenance[];
   confidence: { label: string; evidence_strength: string; evidence_count: number; source_class: string; teach_back: string; slot_states: string[]; caution: string; sessions: string[] };
 };
 export type Block = {
   rule_id: string; title: string; message: string; text: string; guardrail_id: string; evidence_class: string;
   trace: { field: string; op: string; expected: unknown; observed: unknown; met: boolean }[];
-  explain: { expert_words: { kind: string; quote: string; unit_id?: string; turn?: string; ts?: number; verbatim?: boolean }[]; screen_moment: { event_id: string; ts: number; frame: boolean } | null };
+  explain: { expert_words: { kind: string; quote: string; unit_id?: string; turn?: string; ts?: number }[]; dataset_summaries: { summary: string; unit_id: string }[]; screen_moment: { event_id: string; ts: number; frame: boolean } | null };
 };
 
 async function call<T>(path: string, body?: unknown, method = body ? "POST" : "GET"): Promise<T> {
@@ -38,7 +39,8 @@ export const api = {
   health: () => call<{ ok: boolean; degraded: boolean; usage: { calls: number; est_usd: number } }>("/health"),
   session: (mode: "capture" | "teach") => call<{ id: string; capture_scenario: { title: string; resident: string; facts: string[]; note: string } }>("/session", { mode }),
   cases: () => call<{ capture: { title: string; resident: string; facts: string[]; note: string }; teach: { id: string; title: string }[] }>("/cases"),
-  event: (e: { field: string; value?: unknown; delta?: unknown; form?: unknown }) => call<{ event: SandboxEvent }>("/events", e),
+  event: (e: { field: string; value?: unknown; delta?: unknown; form?: unknown }) => call<{ event: SandboxEvent; scope?: { escalate: boolean; reason: string } }>("/events", e),
+  recording: (on: boolean) => call<{ recording: boolean }>("/recording", { on }),
   frame: (event_id: string, data_url: string) => call("/frames", { event_id, data_url }),
   question: (event_id: string, signals: Gate) => call<{ question: Question | null; reason: string; gate: Gate }>("/question", { event_id, signals }),
   answer: (question_id: string, text: string) => call<{ transition: { slot: string; before: string; after: string }; dont_know: boolean; uncertainty: number }>("/answer", { question_id, text }),
@@ -46,7 +48,7 @@ export const api = {
   debriefStatus: () => call<{ new_followups_answered: number; needs_3_new: boolean; guardrails_covered: boolean; teach_back_done: boolean; done: boolean; note: string; residual_gaps: { rule_id: string; slot: string }[] }>("/debrief/status"),
   teachback: () => call<{ text: string; steps: { step_id: string; rule_id: string; summary: string }[] }>("/debrief/teachback"),
   confirm: (rule_id: string, ok: boolean, correction?: string) => call<{ teach_back: string }>("/debrief/confirm", { rule_id, ok, correction }),
-  workmap: () => call<{ map_version: string; steps: Step[]; seeded_only_rules: string[] }>("/workmap"),
+  workmap: () => call<{ map_version: string; steps: Step[]; seeded_only_rules: string[]; unexplained_events: { event_id: string; ts: number; text: string }[] }>("/workmap"),
   offRecord: (since_ts: number) => call<{ events: number; frames: number; answers: number; slot_items: number; disclosure: string }>("/off-record", { since_ts }),
   teachOpen: (case_id: string) => call<{ map_version: string; id: string; resident: string; title: string; facts: string[]; predict: { question: string; options: Record<string, string> }; form_start: Partial<Form> }>("/teach/open", { case_id }),
   predict: (case_id: string, option: string) => call<{ correct: boolean; explain: unknown }>("/teach/predict", { case_id, option }),

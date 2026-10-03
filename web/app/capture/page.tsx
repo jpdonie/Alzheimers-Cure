@@ -21,6 +21,7 @@ export default function Capture() {
   const [note, setNote] = useState<string>("");
   const [transition, setTransition] = useState<string>("");
   const [sharing, setSharing] = useState(false);
+  const [clinical, setClinical] = useState("");
 
   const eventsRef = useRef<SandboxEvent[]>([]);
   const qRef = useRef<Question | null>(null);
@@ -39,7 +40,7 @@ export default function Capture() {
   }, []);
 
   const voice = useVoiceAgent({ role: "interviewer", onUserMessage: (t) => {
-    if (!qRef.current) return;
+    if (!qRef.current || offRef.current) return;   // nothing is collected while off the record
     buf.current += " " + t; clearTimeout(bufTimer.current);
     bufTimer.current = setTimeout(() => submitAnswer(buf.current), 3000);
   } });
@@ -58,7 +59,10 @@ export default function Capture() {
 
   const emit = useCallback(async (field: string, value: unknown, next: Form, delta?: unknown) => {
     if (offRef.current) return;
-    const { event } = await api.event({ field, value, delta, form: next });
+    const res = await api.event({ field, value, delta, form: next }).catch(() => null);   // rejected (409) if recording is off
+    if (!res) return;
+    const { event } = res;
+    if (res.scope) setClinical(res.scope.escalate ? res.scope.reason : "");
     eventsRef.current = [...eventsRef.current, event]; setEvents(eventsRef.current);
     lastEventAt.current = Date.now(); voice.context(event.text);
     setTimeout(() => grabFrame(event.id), 200);
@@ -85,8 +89,8 @@ export default function Capture() {
       const now = Date.now();
       const sig = { hands_still: now - lastActivity.current > 2500, screen_stable: now - lastEventAt.current > 1500, voice_silent: voice.connected ? voice.silentFor() > 1500 : true };
       setGate((g) => ({ ...g, ...sig }));
-      const latest = [...eventsRef.current].reverse().find((e) => !triedRef.current.has(e.id));  // newest event not yet considered
-      if (!latest || offRef.current || qRef.current) return;
+      const latest = eventsRef.current.at(-1);   // only the newest event may trigger a question
+      if (!latest || offRef.current || qRef.current || triedRef.current.has(latest.id)) return;
       if (!Object.values(sig).every(Boolean) || now - lastTry.current < 2000) return;
       lastTry.current = now;
       const res = await api.question(latest.id, sig).catch(() => null); if (!res) return;
@@ -105,7 +109,13 @@ export default function Capture() {
     } catch { setNote("Screen share declined: continuing with DOM events only (degraded mode)."); }
   };
 
-  const toggleOff = () => { offRef.current = !offRef.current; setOffRecord(offRef.current); };
+  const toggleOff = async () => {
+    const next = !offRef.current;
+    offRef.current = next; setOffRecord(next);            // client stops first, then the server refuses late writes
+    if (next) { voice.stop(); qRef.current = null; setQuestion(null); buf.current = ""; }
+    await api.recording(!next).catch(() => {});
+    setNote(next ? "Off the record: collection stopped, voice disconnected. Restart voice to continue." : "Recording again.");
+  };
   const deleteLastMinute = async () => {
     const last = eventsRef.current.at(-1)?.ts ?? 0; const r = await api.offRecord(Math.max(0, last - 60));
     eventsRef.current = []; setEvents([]); qRef.current = null; setQuestion(null);
@@ -136,6 +146,7 @@ export default function Capture() {
             <button className={`btn ${offRecord ? "btn-primary bg-coral border-coral" : "btn-ghost"}`} onClick={toggleOff}>{offRecord ? "Off the record: ON" : "Off the record"}</button>
             <button className="btn btn-ghost" onClick={deleteLastMinute}>Delete last minute</button>
           </div>
+          {clinical && <p className="rounded-lg border border-coral bg-coral/10 p-2 text-sm text-coral">Clinical concern: {clinical}</p>}
           {voice.error && <p className="text-sm text-coral">Voice unavailable ({voice.error}). Captions and typed answers still work.</p>}
           <PauseGate gate={gate} />
           <QuestionCaption q={question} state={state} />

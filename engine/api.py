@@ -1,18 +1,31 @@
 """FastAPI surface for the web app. Run: uvicorn engine.api:app --port 8000"""
-import json
+import asyncio, copy, json, os
 from pathlib import Path
 import base64
 from fastapi import FastAPI, HTTPException, Response
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from . import llm, federated
-from .session import Session
+from . import llm, scope
+from .session import Conflict, Session
 
 app = FastAPI(title="Apprentice engine")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"], allow_methods=["*"], allow_headers=["*"])
-STATE: dict = {"s": Session("capture")}
+STATE: dict = {"s": Session("capture")}   # single-user local demo server: one session, requests serialised below
+LOCK = asyncio.Lock()
+
+
+@app.middleware("http")
+async def serialise(request, call_next):
+    async with LOCK:
+        return await call_next(request)
+
+
+@app.exception_handler(Conflict)
+async def conflict(_, exc: Conflict):
+    return JSONResponse({"detail": str(exc)}, status_code=409)
 DATA = Path(__file__).resolve().parent.parent / "data"
 
 
@@ -20,15 +33,36 @@ def S() -> Session: return STATE["s"]
 
 
 class NewSession(BaseModel): mode: Literal["capture", "teach"] = "capture"
+Interp = Literal["none", "behavioural_agitation", "physical_cause_suspected", "environmental", "unknown"]
+Check = Literal["pain", "footwear_skin", "hunger_thirst", "hearing_vision_aids", "noise_environment", "toileting"]
+Interv = Literal["no_action", "retry_later_same_carer", "swap_carer_or_call_psychologist", "reassure_and_note", "give_prn_medication", "adjust_diet", "integration_plan_review"]
+Escal = Literal["none", "nurse", "psychologist", "team_meeting", "coordinating_physician"]
+
+
+class FormIn(BaseModel):
+    """The sandbox form, validated at the boundary (the guard evaluates this exact shape)."""
+    model_config = ConfigDict(extra="forbid")
+    incident_type: Literal["refusal_of_care", "exit_seeking", "medication_request", "other"] = "refusal_of_care"
+    observation: str = Field("", max_length=1000)
+    interpretation: Interp = "none"
+    checks: list[Check] = Field(default_factory=list, max_length=6)
+    occurrences_today: int = Field(1, ge=0, le=50)
+    pattern: Literal["", "new", "habitual", "unsure"] = ""
+    intervention: Interv = "no_action"
+    escalate_to: Escal = "none"
+
+
 class Ev(BaseModel):
-    field: str; value: object = None; delta: dict | None = None; form: dict | None = None; ts: float | None = None
+    field: Literal["incident_type", "observation", "interpretation", "checks", "occurrences_today", "pattern", "intervention", "escalate_to", "save"]
+    value: object = None; delta: dict | None = None; form: FormIn | None = None
 class Frame(BaseModel): event_id: str = Field(max_length=40); data_url: str = Field(max_length=2_000_000, pattern=r"^data:image/(jpeg|png);base64,")
 class Ask(BaseModel): event_id: str; signals: dict
 class Ans(BaseModel): question_id: str = Field(max_length=40); text: str = Field(min_length=1, max_length=2000); ts: float | None = None
 class Conf(BaseModel): rule_id: str = Field(max_length=60); ok: bool; correction: str | None = Field(default=None, max_length=1000)
 class Off(BaseModel): since_ts: float = Field(ge=0)
-class Pred(BaseModel): case_id: str; option: str
-class Save(BaseModel): case_id: str; form: dict
+class Pred(BaseModel): case_id: str = Field(max_length=10); option: Literal["a", "b", "c", "d"]
+class Save(BaseModel): case_id: str = Field(max_length=10); form: FormIn
+class Rec(BaseModel): on: bool
 
 
 @app.get("/health")
@@ -38,8 +72,9 @@ def health(): return {"ok": True, "session": S().id, "degraded": S().degraded, "
 def new(b: NewSession):
     if b.mode == "teach":   # keep what the apprentice learned in capture
         old = STATE["s"]; s = Session("teach")
-        s.rules, s.teachback, s.frames, s.drift_log = old.rules, old.teachback, old.frames, old.drift_log
-        s.events, s.questions, s.answers = old.events, old.questions, old.answers
+        s.rules, s.teachback, s.frames, s.drift_log = copy.deepcopy(old.rules), dict(old.teachback), dict(old.frames), copy.deepcopy(old.drift_log)
+        s.events, s.questions, s.answers = copy.deepcopy(old.events), copy.deepcopy(old.questions), copy.deepcopy(old.answers)
+        s.freeze()
         STATE["s"] = s
     else:
         STATE["s"] = Session(b.mode)
@@ -49,7 +84,14 @@ def new(b: NewSession):
 def cases(): return {"capture": S().cases["capture_scenario"], "teach": [{"id": c["id"], "title": c["title"], "resident": c["resident"]} for c in S().cases["teach_cases"]]}
 
 @app.post("/events")
-def events(e: Ev): return S().add_event(e.model_dump())
+def events(e: Ev):
+    r = S().add_event(e.model_dump())
+    if e.field == "observation":   # fail-closed clinical language check, visible to the expert while they type
+        r["scope"] = scope.classify(str(e.value or ""))
+    return r
+
+@app.post("/recording")
+def recording(r: Rec): return S().set_recording(r.on)
 
 @app.post("/frames")
 def frames(f: Frame): return {"ok": True, "vision": S().add_frame(f.event_id, f.data_url)}
@@ -93,7 +135,7 @@ def t_pred(p: Pred):
     except StopIteration: raise HTTPException(404, "unknown case")
 @app.post("/teach/check-save")
 def t_save(p: Save):
-    try: return S().teach_check_save(p.case_id, p.form)
+    try: return S().teach_check_save(p.case_id, p.form.model_dump())
     except StopIteration: raise HTTPException(404, "unknown case")
 @app.get("/mastery")
 def mastery(): return {"rows": S().mastery.summary()}
@@ -105,15 +147,20 @@ def t_brief(b: dict):
     lines = []
     for rid in c["rule_ids"]:
         ex = S()._explain(S().rule(rid))
-        lines.append(f"Rule {rid}: {ex['title']}. Expert words: " + " | ".join(w["quote"] for w in ex["expert_words"]))
+        quotes = " | ".join(f"\"{w['quote']}\"" for w in ex["expert_words"])
+        notes = " | ".join(d["summary"] for d in ex["dataset_summaries"])
+        lines.append(f"Rule {rid}: {ex['title']}. Verbatim expert words: {quotes or 'none'}." + (f" Dataset summary (not a quotation): {notes}." if notes else ""))
     return {"brief": "\n".join(lines)}
 
 @app.get("/rules")
 def rules(): return {"rules": S().rules}
 @app.get("/usage")
 def usage(): return llm.usage_summary()
-@app.get("/dp-sweep")
-def dp(): return {"note": "Simulation only; org = privacy unit", "sweep": federated.sweep()}
+if "dp" in os.getenv("APPRENTICE_EXTENSIONS", ""):   # deferred extension: never part of the live path
+    from . import federated
+
+    @app.get("/dp-sweep")
+    def dp(): return {"note": "Simulation only; org = privacy unit", "sweep": federated.sweep()}
 @app.get("/eval")
 def ev():
     p = DATA / "eval_results.json"

@@ -26,9 +26,10 @@ export default function WorkMap() {
   const [steps, setSteps] = useState<Step[]>([]);
   const [seeded, setSeeded] = useState<string[]>([]);
   const [version, setVersion] = useState("");
+  const [unexplained, setUnexplained] = useState<{ event_id: string; ts: number; text: string }[]>([]);
   const [open, setOpen] = useState<string>("");
   const [err, setErr] = useState("");
-  useEffect(() => { api.workmap().then((w) => { setSteps(w.steps); setSeeded(w.seeded_only_rules); setVersion(w.map_version); setOpen(w.steps[0]?.step_id ?? ""); }).catch(() => setErr("Engine not reachable on :8000")); }, []);
+  useEffect(() => { api.workmap().then((w) => { setSteps(w.steps); setSeeded(w.seeded_only_rules); setVersion(w.map_version); setUnexplained(w.unexplained_events); setOpen(w.steps[0]?.step_id ?? ""); }).catch(() => setErr("Engine not reachable on :8000")); }, []);
 
   return (
     <div className="space-y-3">
@@ -63,7 +64,9 @@ export default function WorkMap() {
                   {s.guardrails.map((g) => (
                     <div key={g.text} className="rounded-lg border border-amber bg-amber/10 p-2 text-sm">
                       <p>{g.text} <span className="chip">{g.state}</span></p>
-                      {g.expert_words.map((w, i) => <blockquote key={i} className="quote mt-1">“{String(w.quote ?? "")}” <span className="text-xs">({w.kind === "screen" ? "live" : `transcript ${w.unit_id}`})</span></blockquote>)}
+                      {g.expert_words.map((w, i) => w.kind === "dataset_summary"
+                        ? <p key={i} className="mt-1 text-xs"><span className="chip">dataset summary, not a quotation</span> {w.summary} ({w.unit_id})</p>
+                        : <blockquote key={i} className="quote mt-1">“{String(w.quote ?? "")}” <span className="text-xs">({w.kind === "screen" ? "live" : `transcript ${w.unit_id}`})</span></blockquote>)}
                     </div>))}
                   {s.exceptions.length > 0 && <><h4 className="font-semibold">Exceptions the expert named</h4><ul className="list-disc pl-5 text-sm">{s.exceptions.map((e) => <li key={e.text}>{e.text}</li>)}</ul></>}
                   {s.escalation && <p className="text-sm"><b>Hand over to:</b> {s.escalation}</p>}
@@ -80,6 +83,7 @@ export default function WorkMap() {
               </div>)}
           </li>))}
       </ol>
+      {unexplained.length > 0 && <div className="card text-sm"><b>Demonstrated but not explained yet (missing, not guessed):</b> {unexplained.map((u) => `${u.ts.toFixed(0)}s ${u.text}`).join("; ")}.</div>}
       {seeded.length > 0 && <div className="card text-sm"><b>Known from transcripts only, never seen live:</b> {seeded.join(", ")}. These are hypotheses until an expert confirms them.</div>}
     </div>
   );

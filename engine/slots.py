@@ -26,8 +26,11 @@ def slot_state(rule: dict, slot: str) -> str:
     if isinstance(v, list):
         if not v:
             return "missing"
-        order = ["conflicted", "missing", "hypothesized", "expert_stated", "confirmed"]
-        return min((i["state"] for i in v), key=order.index)  # least-certain item dominates
+        states = [i["state"] for i in v]
+        if "conflicted" in states:
+            return "conflicted"
+        order = ["missing", "hypothesized", "expert_stated", "confirmed"]
+        return max(states, key=order.index)  # slot counts as addressed once the expert has stated any item; items keep their own state
     return v["state"]
 
 
