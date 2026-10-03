@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/engine";
 
-const STEPS = [["/capture", "Capture"], ["/debrief", "Debrief"], ["/map", "Work Map"], ["/teach", "Teach"]];
+const STEPS = [["/capture", "Capture"], ["/debrief", "Debrief"], ["/map", "Work Map"], ["/graph", "Graph"], ["/teach", "Teach"]];
 
 function EngineBadge() {
   const [h, setH] = useState<{ degraded: boolean; usage: { calls: number; est_usd: number } } | null | "down">(null);

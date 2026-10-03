@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { LearnedMapPanel } from "@/components/LearnedMapPanel";
-import { ENGINE, api, explain, sessionId, type Provenance, type Related, type SeededRule, type Step } from "@/lib/engine";
+import { ENGINE, api, explain, sessionId, type CbtCheck, type Guideline, type Provenance, type Related, type SeededRule, type Step } from "@/lib/engine";
 
 const LABEL_COLOR: Record<string, string> = { low: "border-coral text-coral", medium: "border-amber bg-amber/20", high: "border-teal bg-teal text-white" };
 
@@ -32,6 +32,17 @@ function ReviewBar({ rule, onChange }: { rule: SeededRule; onChange: () => void 
         {rule.reviewed && <button className="btn btn-ghost" onClick={() => act("reset")}>Undo review</button>}
       </div>
     </div>
+  );
+}
+
+function GuidelineList({ items, cbt, pub }: { items: Guideline[]; cbt: CbtCheck; pub: { url: string; excerpt: string; fetched_at: string; provider: string }[] }) {
+  return (
+    <details className="text-sm"><summary className="cursor-pointer text-teal">Guideline context and CBT safeguards</summary>
+      {items.map((g) => <p key={g.page} className="mt-1 text-xs"><span className="chip">{g.source.split(" (")[0]}, p.{g.page}</span> <i>{g.excerpt}</i></p>)}
+      {pub.map((p) => <p key={p.url} className="mt-1 text-xs"><span className="chip">public web, fetched {p.fetched_at} via {p.provider}</span> <i>{p.excerpt}</i> <a className="underline" href={p.url} target="_blank" rel="noreferrer">source</a></p>)}
+      <p className="mt-1 text-xs text-ink/70">Literature context, not an expert quote and not proof that this rule works in this setting.</p>
+      <p className="mt-1 text-xs"><b>CBT checklist:</b> formulation {cbt.formulation ? "✓" : "○"} · targeted intervention {cbt.targeted_intervention ? "✓" : "○"} · measurement {cbt.measurement ? "✓" : "○ not recorded"} · empirical validation {cbt.empirical_validation ? "✓" : "○ not supplied"}</p>
+      <p className="text-xs">{cbt.safeguards.delivery_not_effectiveness} {cbt.safeguards.evidence_does_not_transfer}</p></details>
   );
 }
 
@@ -139,6 +150,7 @@ export default function WorkMap() {
                     ? <p key={i} className="text-xs"><span className="chip">dataset summary, not a quotation</span> {w.summary} ({w.unit_id})</p>
                     : <blockquote key={i} className="quote">“{w.quote}” <span className="text-xs">(transcript {w.unit_id}, verbatim)</span></blockquote>)}
                   {r.caution && <p className="text-xs text-ink/70">Caveat: {r.caution}</p>}
+                  <GuidelineList items={r.guidelines} cbt={r.cbt} pub={r.public} />
                   <RelatedList items={r.related} />
                   <ReviewBar rule={r} onChange={load} />
                 </div>

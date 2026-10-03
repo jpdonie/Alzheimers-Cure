@@ -6,6 +6,8 @@ from pathlib import Path
 from . import guard, learned, scope, slots as S, llm
 from .confidence import facets
 from .related import related
+from .literature import cbt_check, context_for
+from .evidence_refresh import public_context
 from .mastery import Mastery
 from .privacy import redact
 
@@ -354,7 +356,7 @@ class Session:
                           "provenance": [{"kind": "screen", "event_id": q["event_id"], "ts": q["ts"]} for q in qs] +
                                         [{"kind": "transcript", "unit_id": s["unit_id"], "session": s["session"], "turn_ids": s["turn_ids"],
                                           "span": s["quote_span"], "verbatim": s["kind"] == "verbatim"} for s in r["sources"]],
-                          "versions": r.get("versions", []), "related": related(r)})
+                          "versions": r.get("versions", []), "related": related(r), "guidelines": context_for(r), "public": public_context(r), "cbt": cbt_check(r)})
         steps.sort(key=lambda s: s["screen_moment"]["ts"])
         for i, s in enumerate(steps): s["n"] = i + 1
         seeded = [{"rule_id": r["id"], "title": r["title"], "risk": r["risk"],
@@ -363,7 +365,7 @@ class Session:
                    "escalation": r["slots"]["escalation"]["text"], "predicate": guard.render(r["predicate"]), "severity": r["predicate"]["severity"],
                    "evidence": self._source_evidence(r), "caution": r.get("caution", ""),
                    "confidence": facets(r, 0, "none", r.get("reviewed", ""))["label"], "reviewed": r.get("reviewed", ""), "review_note": r.get("review_note", ""),
-                   "states": S.snapshot_states([r])[r["id"]], "related": related(r)}
+                   "states": S.snapshot_states([r])[r["id"]], "related": related(r), "guidelines": context_for(r), "public": public_context(r), "cbt": cbt_check(r)}
                   for r in self.rules if r["id"] not in by_rule and not r.get("learned")]
         asked_events = {q["event_id"] for q in self.questions if q["event_id"]}
         unexplained = [{"event_id": e["id"], "ts": e["ts"], "text": e["text"]} for e in self.events if e["id"] not in asked_events and e.get("field") != "save"]

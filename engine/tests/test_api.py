@@ -85,3 +85,8 @@ def test_work_map_is_seeded_before_any_capture():
     assert r1["confidence"] == "medium" and r1["predicate"]          # two sessions corroborate it, yet it is still unconfirmed live
     assert next(r for r in wm["seeded_rules"] if r["rule_id"] == "R5-habitual-vs-new")["confidence"] == "low"   # single source and any(e["kind"] == "transcript" for e in r1["evidence"])
     assert all(g["state"] == "hypothesized" for r in wm["seeded_rules"] for g in r["guardrails"])
+
+
+def test_allowed_origins_are_configurable_and_default_to_local_web():
+    from engine.api import ALLOWED
+    assert "http://localhost:3000" in ALLOWED and all(o.startswith("http") for o in ALLOWED)

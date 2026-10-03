@@ -26,9 +26,11 @@ export type Step = {
   confidence: { label: string; evidence_strength: string; evidence_count: number; source_class: string; teach_back: string; slot_states: string[]; caution: string; sessions: string[] };
 };
 export type Related = { unit_id: string; session: string; subtopic: string; source_type: string; score: number; branches: string[]; caveat: string };
+export type Guideline = { source: string; page: number; excerpt: string; score: number };
+export type CbtCheck = { formulation: boolean; targeted_intervention: boolean; measurement: boolean; empirical_validation: boolean; safeguards: Record<string, string> };
 export type SeededRule = {
   rule_id: string; title: string; risk: number; context: string; action: string; rationale: string; escalation: string; predicate: string; severity: string;
-  guardrails: { text: string; state: string }[]; evidence: Evidence[]; caution: string; confidence: string; related: Related[]; reviewed: string; review_note: string;
+  guardrails: { text: string; state: string }[]; evidence: Evidence[]; caution: string; confidence: string; related: Related[]; guidelines: Guideline[]; public: { url: string; excerpt: string; fetched_at: string; provider: string }[]; cbt: CbtCheck; reviewed: string; review_note: string;
 };
 export type LearnedCard = {
   id: string; title: string; kind: string; context: string; action: string; rationale: string; exceptions: string[]; guardrails: string[]; escalation: string[];
@@ -38,6 +40,9 @@ export type LearnedCard = {
   review: string; review_note: string; enforced: boolean;
 };
 export type LearnedMap = { cards: LearnedCard[]; agenda: { card: string; title: string; missing: string[]; ask: string }[]; report: Record<string, unknown> };
+export type GraphNode = { id: string; type: string; label: string; status: string; detail: Record<string, unknown>; risk?: number; kind?: string; safety?: boolean; learned?: boolean };
+export type GraphEdge = { source: string; target: string; type: string; label: string };
+export type CareGraphData = { nodes: GraphNode[]; edges: GraphEdge[]; stats: { nodes: number; edges: number; by_type: Record<string, number>; rules_rederived_by_learner: string[]; map_version: string } };
 export type Block = {
   rule_id: string; title: string; message: string; text: string; guardrail_id: string; evidence_class: string;
   trace: { field: string; op: string; expected: unknown; observed: unknown; met: boolean }[];
@@ -77,6 +82,7 @@ export const api = {
   event: (e: { field: string; value?: unknown; delta?: unknown; form?: unknown }) => call<{ event: SandboxEvent; scope?: { escalate: boolean; reason: string } }>("/events", e),
   review: (rule_id: string, decision: "confirm" | "reject" | "reset", note = "") => call<{ rule_id: string; decision: string; map_version: string }>("/review", { rule_id, decision, note }),
   learned: () => call<LearnedMap>("/learned"),
+  graph: () => call<CareGraphData>("/graph"),
   recording: (on: boolean) => call<{ recording: boolean }>("/recording", { on }),
   frame: (event_id: string, data_url: string) => call("/frames", { event_id, data_url }),
   question: (event_id: string, signals: Gate) => call<{ question: Question | null; reason: string; gate: Gate }>("/question", { event_id, signals }),

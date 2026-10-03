@@ -74,9 +74,12 @@ def test_capture_debrief_map_teach():
         page.get_by_text("Provenance").first.click()
         assert page.get_by_text("transcript").count() >= 1
 
+        # graph: the live moment is a node connected to its rule, and the learner's re-derivations are shown
+        page.goto(f"{WEB}/graph"); page.get_by_text("nodes,", exact=False).wait_for(timeout=20000)
+        assert page.get_by_text("independently re-derived", exact=False).count() == 1
+        page.get_by_placeholder("Search: pain, nurse, KU-S13-20…").fill("somatic"); page.wait_for_timeout(500)
+        page.goto(f"{WEB}/teach"); page.get_by_text("Predict:").wait_for()
         # teach: predict, blocked before save with inspectable predicate, retry succeeds
-        page.get_by_role("link", name="Teach a new hire →").click()
-        page.get_by_text("Predict:").wait_for()
         page.get_by_role("button", name=re.compile(r"^A\. Note")).click()
         page.get_by_role("button", name="Save record").click()
         page.get_by_text("Hold on: not saved yet").wait_for()

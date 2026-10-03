@@ -9,11 +9,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
-from . import export as exporter, learned, llm, scope
+from . import export as exporter, graph as care_graph, learned, llm, scope
 from .session import Conflict, Session
 
 app = FastAPI(title="Apprentice engine")
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"], allow_methods=["*"], allow_headers=["*"])
+# Browser origins allowed to call the engine. Production sets APPRENTICE_ALLOWED_ORIGINS="https://your-app.vercel.app" (comma separated).
+ALLOWED = [o.strip() for o in os.getenv("APPRENTICE_ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",") if o.strip()]
+app.add_middleware(CORSMiddleware, allow_origins=ALLOWED, allow_methods=["*"], allow_headers=["*"])
 SESSIONS: "OrderedDict[str, Session]" = OrderedDict()   # one Session per browser (X-Session-Id), oldest evicted
 CURRENT = contextvars.ContextVar("sid", default="default")
 MAX_SESSIONS = 20
@@ -166,6 +168,9 @@ def t_brief(b: dict):
 
 @app.post("/review")
 def review(r: Rev): return S().review(r.rule_id, r.decision, r.note)
+
+@app.get("/graph")
+def graph(): return care_graph.build(S())
 
 @app.get("/export")
 def export_guardrails():
