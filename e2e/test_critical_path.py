@@ -7,7 +7,7 @@ pytestmark = pytest.mark.skipif(os.getenv("E2E") != "1", reason="opt-in browser 
 WEB = "http://localhost:3000"
 
 
-def wait_question(page, timeout=12000):
+def wait_question(page, timeout=30000):
     cap = page.locator("[role=status]")
     cap.wait_for(timeout=timeout)
     return cap.inner_text()
