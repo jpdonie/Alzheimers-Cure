@@ -90,3 +90,12 @@ def test_work_map_is_seeded_before_any_capture():
 def test_allowed_origins_are_configurable_and_default_to_local_web():
     from engine.api import ALLOWED
     assert "http://localhost:3000" in ALLOWED and all(o.startswith("http") for o in ALLOWED)
+
+
+def test_origin_regex_is_scoped_to_our_project_names():
+    import re
+    rx = r"^https://(web|alzheimer-cure|care-apprentice)(-[a-z0-9-]+)?\.vercel\.app$"
+    for ok in ("https://web-delta-nine-78.vercel.app", "https://alzheimer-cure.vercel.app", "https://web-git-main-vatsaljha28-8711s-projects.vercel.app"):
+        assert re.match(rx, ok)
+    for bad in ("https://evil.vercel.app", "https://web.vercel.app.evil.com", "http://web-delta-nine-78.vercel.app", "https://webx.example.com"):
+        assert not re.match(rx, bad)

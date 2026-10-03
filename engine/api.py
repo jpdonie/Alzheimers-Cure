@@ -15,7 +15,9 @@ from .session import Conflict, Session
 app = FastAPI(title="Apprentice engine")
 # Browser origins allowed to call the engine. Production sets APPRENTICE_ALLOWED_ORIGINS="https://your-app.vercel.app" (comma separated).
 ALLOWED = [o.strip() for o in os.getenv("APPRENTICE_ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",") if o.strip()]
-app.add_middleware(CORSMiddleware, allow_origins=ALLOWED, allow_methods=["*"], allow_headers=["*"])
+# Optional pattern for hosted preview/production URLs of OUR Vercel project(s); a bare "*.vercel.app" would let any site spend our API credits.
+ORIGIN_REGEX = os.getenv("APPRENTICE_ALLOWED_ORIGIN_REGEX") or None
+app.add_middleware(CORSMiddleware, allow_origins=ALLOWED, allow_origin_regex=ORIGIN_REGEX, allow_methods=["*"], allow_headers=["*"])
 SESSIONS: "OrderedDict[str, Session]" = OrderedDict()   # one Session per browser (X-Session-Id), oldest evicted
 CURRENT = contextvars.ContextVar("sid", default="default")
 MAX_SESSIONS = 20
