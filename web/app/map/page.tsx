@@ -25,14 +25,15 @@ function ProvRow({ p }: { p: Provenance }) {
 export default function WorkMap() {
   const [steps, setSteps] = useState<Step[]>([]);
   const [seeded, setSeeded] = useState<string[]>([]);
+  const [version, setVersion] = useState("");
   const [open, setOpen] = useState<string>("");
   const [err, setErr] = useState("");
-  useEffect(() => { api.workmap().then((w) => { setSteps(w.steps); setSeeded(w.seeded_only_rules); setOpen(w.steps[0]?.step_id ?? ""); }).catch(() => setErr("Engine not reachable on :8000")); }, []);
+  useEffect(() => { api.workmap().then((w) => { setSteps(w.steps); setSeeded(w.seeded_only_rules); setVersion(w.map_version); setOpen(w.steps[0]?.step_id ?? ""); }).catch(() => setErr("Engine not reachable on :8000")); }, []);
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold">Work Map</h2>
+        <h2 className="text-xl font-bold">Work Map <span className="chip ml-2" title="Content hash of the artifact the Teach step consumes">version {version}</span></h2>
         <Link href="/teach" className="btn btn-primary">Teach a new hire →</Link>
       </div>
       {err && <p className="text-coral">{err}</p>}
@@ -51,6 +52,7 @@ export default function WorkMap() {
                   <h4 className="font-semibold">Screen moment</h4>
                   <p className="text-sm">{s.screen_moment.ts.toFixed(0)}s · expert {s.decision}</p>
                   <Frame id={s.screen_moment.event_id} form={s.screen_moment.form as Record<string, unknown>} />
+                  {s.screen_moment.vision && <p className="text-xs">Vision model caption: {s.screen_moment.vision}</p>}
                   <h4 className="font-semibold">In the expert&apos;s words (live)</h4>
                   {s.reason.length ? s.reason.map((r, i) => <blockquote key={i} className="quote">“{r.text}” <span className="text-xs">({r.slot}, {r.ts.toFixed(0)}s)</span></blockquote>) : <p className="text-sm text-coral">No live explanation yet. Missing, not guessed.</p>}
                   <h4 className="font-semibold">Why (seeded from transcripts, not yet confirmed live)</h4>

@@ -86,8 +86,24 @@ class Session:
         self._save()
         return out
 
-    def add_frame(self, event_id: str, data_url: str):
+    VISION_FIELDS = {"checks", "intervention", "escalate_to", "save"}
+    VISION_BUDGET = 12
+
+    def add_frame(self, event_id: str, data_url: str) -> str | None:
+        """Store the cropped frame; a vision model confirms/captions the change for the decision-relevant events only."""
         self.frames[event_id] = data_url
+        ev = self.ev(event_id)
+        if not ev or ev.get("field") not in self.VISION_FIELDS or sum(1 for e in self.events if e.get("vision")) >= self.VISION_BUDGET:
+            return None
+        try:
+            cap = llm.vision(data_url, f"A DOM event reports that the expert {ev['text']}. This is a cropped screenshot of a fake care-records form. "
+                             "In one short sentence start with 'Confirmed:' or 'Not visible:' and say what the relevant field shows. Describe only what is visible; infer nothing clinical.")
+        except Exception:
+            self.degraded = True
+            return None
+        ev["vision"] = redact(cap)[0]
+        self._save()
+        return ev["vision"]
 
     def _mk_question(self, rule, slot, rung, ev, qtype=None, text=None, score=0.0, alts=None):
         qtype = qtype or {"rationale": "why", "exceptions": "counterfactual", "guardrails": "guardrail",
@@ -224,6 +240,12 @@ class Session:
                 "note": "Done means these checks pass; it does not prove complete understanding."}
 
     # ---------- work map
+    def map_version(self) -> str:
+        """Content hash of what Teach consumes: slot states, live items, predicates and teach-back results."""
+        import hashlib
+        blob = json.dumps({"r": [{"id": r["id"], "slots": r["slots"], "p": r["predicate"]} for r in self.rules], "tb": self.teachback}, sort_keys=True, default=str)
+        return hashlib.sha1(blob.encode()).hexdigest()[:8]
+
     def workmap(self) -> dict:
         steps, by_rule = [], {}
         for q in self.questions:
@@ -242,7 +264,7 @@ class Session:
                                            [{"kind": "transcript", "unit_id": s["unit_id"], "turn": s["quote_turn"], "quote": s["quote_span"]} for s in r["sources"][:1]]})
             unresolved = [s for s in S.SLOTS if S.slot_state(r, s) in ("missing", "hypothesized", "conflicted")]
             steps.append({"step_id": f"STEP-{rid}", "rule_id": rid, "title": r["title"], "screen_moment": {"event_id": first["id"], "ts": first["ts"],
-                          "text": first["text"], "form": first.get("form"), "frame": first["id"] in self.frames},
+                          "text": first["text"], "form": first.get("form"), "frame": first["id"] in self.frames, "vision": first.get("vision")},
                           "decision": first["text"], "reason": live_quotes, "rationale_seed": r["slots"]["rationale"]["text"],
                           "exceptions": [{"text": e["text"], "state": e["state"]} for e in r["slots"]["exceptions"]],
                           "guardrails": gs, "escalation": r["slots"]["escalation"].get("live_text") or r["slots"]["escalation"]["text"],
@@ -254,7 +276,7 @@ class Session:
                           "versions": r.get("versions", [])})
         steps.sort(key=lambda s: s["screen_moment"]["ts"])
         for i, s in enumerate(steps): s["n"] = i + 1
-        return {"steps": steps, "drift": self.drift_log, "seeded_only_rules": [r["id"] for r in self.rules if r["id"] not in by_rule]}
+        return {"schema": "workmap/1", "map_version": self.map_version(), "steps": steps, "drift": self.drift_log, "seeded_only_rules": [r["id"] for r in self.rules if r["id"] not in by_rule]}
 
     def teachback_text(self) -> dict:
         wm = self.workmap()["steps"]
@@ -324,7 +346,7 @@ class Session:
     # ---------- teach
     def teach_open(self, case_id: str) -> dict:
         c = next(x for x in self.cases["teach_cases"] if x["id"] == case_id)
-        return {k: v for k, v in c.items() if k not in ("rule_ids",)} | {"predict": {"question": c["predict"]["question"], "options": c["predict"]["options"]}}
+        return {k: v for k, v in c.items() if k not in ("rule_ids",)} | {"map_version": self.map_version(), "predict": {"question": c["predict"]["question"], "options": c["predict"]["options"]}}
 
     def teach_predict(self, case_id: str, option: str) -> dict:
         c = next(x for x in self.cases["teach_cases"] if x["id"] == case_id)
@@ -336,14 +358,24 @@ class Session:
         return {"correct": ok, "correct_option": None if not ok else option,
                 "explain": self._explain(r0) if not ok else "That matches how the expert reasons."}
 
+    def _live_moments(self, r) -> list[dict]:
+        """What the expert said live about this rule, each tied to the screen event it was asked about."""
+        out = []
+        for q in self.questions:
+            if q["rule_id"] != r["id"] or q["phase"] != "capture" or not q["event_id"]:
+                continue
+            for a in self.answers:
+                if a["question_id"] == q["id"] and not a["extract"].get("dont_know"):
+                    out.append({"event_id": q["event_id"], "ts": a["ts"], "quote": a["text"], "slot": q["slot"], "frame": q["event_id"] in self.frames})
+        return out
+
     def _explain(self, r) -> dict:
-        words = [{"kind": "screen", "quote": p["quote"], "ts": p["ts"], "event_id": p.get("event_id"), "frame": p.get("event_id") in self.frames}
-                 for g in r["slots"]["guardrails"] + r["slots"]["exceptions"] for p in g.get("live", []) if p.get("quote")][:2]
+        live = self._live_moments(r)
+        words = [{"kind": "screen", "quote": m["quote"], "ts": m["ts"], "event_id": m["event_id"], "frame": m["frame"]} for m in live[:2]]
         words += [{"kind": "transcript", "quote": s["quote_span"], "unit_id": s["unit_id"], "turn": s["quote_turn"], "verbatim": s["kind"] == "verbatim"}
                   for s in r["sources"]][:2]
         return {"rule_id": r["id"], "title": r["title"], "expert_words": words,
-                "screen_moment": next(({"event_id": p["event_id"], "ts": p["ts"], "frame": p["event_id"] in self.frames}
-                                       for g in r["slots"]["guardrails"] for p in g.get("live", []) if p.get("event_id")), None)}
+                "screen_moment": {"event_id": live[0]["event_id"], "ts": live[0]["ts"], "frame": live[0]["frame"]} if live else None}
 
     def teach_check_save(self, case_id: str, form: dict) -> dict:
         c = next(x for x in self.cases["teach_cases"] if x["id"] == case_id)

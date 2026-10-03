@@ -126,3 +126,17 @@ def test_redaction_and_dp():
     assert n >= 3 and "Smith" not in t and "@" not in t
     sw = federated.sweep(trials=20)
     assert sw[0]["mae"] > sw[-1]["mae"]
+
+
+def test_vision_caption_is_budgeted_and_degrades_without_provider(monkeypatch):
+    from engine import llm
+    s = Session("capture")
+    e = s.add_event({"field": "checks", "value": ["pain"], "delta": {"added": "pain"}, "form": {}})["event"]
+    assert s.add_frame(e["id"], "data:image/jpeg;base64,AAAA") is None and s.degraded   # offline: no caption, explicit degrade
+    s2 = Session("capture")
+    monkeypatch.setattr(llm, "vision", lambda *a, **k: "The pain checkbox is ticked for Mrs Smith.")
+    e2 = s2.add_event({"field": "checks", "value": ["pain"], "form": {}})["event"]
+    cap = s2.add_frame(e2["id"], "data:image/jpeg;base64,AAAA")
+    assert cap and "Smith" not in cap and e2["id"] in s2.frames
+    e3 = s2.add_event({"field": "observation", "value": "x", "form": {}})["event"]
+    assert s2.add_frame(e3["id"], "data:image/jpeg;base64,AAAA") is None   # not a decision-relevant field

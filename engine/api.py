@@ -4,7 +4,8 @@ from pathlib import Path
 import base64
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from typing import Literal
+from pydantic import BaseModel, Field
 
 from . import llm, federated
 from .session import Session
@@ -18,14 +19,14 @@ DATA = Path(__file__).resolve().parent.parent / "data"
 def S() -> Session: return STATE["s"]
 
 
-class NewSession(BaseModel): mode: str = "capture"
+class NewSession(BaseModel): mode: Literal["capture", "teach"] = "capture"
 class Ev(BaseModel):
     field: str; value: object = None; delta: dict | None = None; form: dict | None = None; ts: float | None = None
-class Frame(BaseModel): event_id: str; data_url: str
+class Frame(BaseModel): event_id: str = Field(max_length=40); data_url: str = Field(max_length=2_000_000, pattern=r"^data:image/(jpeg|png);base64,")
 class Ask(BaseModel): event_id: str; signals: dict
-class Ans(BaseModel): question_id: str; text: str; ts: float | None = None
-class Conf(BaseModel): rule_id: str; ok: bool; correction: str | None = None
-class Off(BaseModel): since_ts: float
+class Ans(BaseModel): question_id: str = Field(max_length=40); text: str = Field(min_length=1, max_length=2000); ts: float | None = None
+class Conf(BaseModel): rule_id: str = Field(max_length=60); ok: bool; correction: str | None = Field(default=None, max_length=1000)
+class Off(BaseModel): since_ts: float = Field(ge=0)
 class Pred(BaseModel): case_id: str; option: str
 class Save(BaseModel): case_id: str; form: dict
 
@@ -51,7 +52,7 @@ def cases(): return {"capture": S().cases["capture_scenario"], "teach": [{"id": 
 def events(e: Ev): return S().add_event(e.model_dump())
 
 @app.post("/frames")
-def frames(f: Frame): S().add_frame(f.event_id, f.data_url); return {"ok": True}
+def frames(f: Frame): return {"ok": True, "vision": S().add_frame(f.event_id, f.data_url)}
 
 @app.get("/frame/{event_id}")
 def frame(event_id: str):
@@ -83,11 +84,17 @@ def workmap(): return S().workmap()
 def off(o: Off): return S().off_record(o.since_ts)
 
 @app.post("/teach/open")
-def t_open(b: dict): return S().teach_open(b["case_id"])
+def t_open(b: dict):
+    try: return S().teach_open(b["case_id"])
+    except (StopIteration, KeyError): raise HTTPException(404, "unknown case")
 @app.post("/teach/predict")
-def t_pred(p: Pred): return S().teach_predict(p.case_id, p.option)
+def t_pred(p: Pred):
+    try: return S().teach_predict(p.case_id, p.option)
+    except StopIteration: raise HTTPException(404, "unknown case")
 @app.post("/teach/check-save")
-def t_save(p: Save): return S().teach_check_save(p.case_id, p.form)
+def t_save(p: Save):
+    try: return S().teach_check_save(p.case_id, p.form)
+    except StopIteration: raise HTTPException(404, "unknown case")
 @app.get("/mastery")
 def mastery(): return {"rows": S().mastery.summary()}
 

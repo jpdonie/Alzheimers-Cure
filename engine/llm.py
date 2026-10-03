@@ -68,3 +68,25 @@ def complete_json(system: str, user: str, model: str = FAST, max_tokens: int = 8
         t = t[t.find("{"):]
     s, e = t.find("{"), t.rfind("}")
     return json.loads(t[s:e + 1])
+
+
+def vision(data_url: str, prompt: str, model: str = FAST, max_tokens: int = 120) -> str:
+    """One image + prompt. Not cached (frames are unique). Raises LLMUnavailable on any failure."""
+    if not os.getenv("ANTHROPIC_API_KEY") or os.getenv("APPRENTICE_OFFLINE") == "1":
+        raise LLMUnavailable("no key or offline mode")
+    head, _, b64 = data_url.partition(",")
+    media = head.split(";")[0].replace("data:", "") or "image/jpeg"
+    import anthropic
+    try:
+        r = anthropic.Anthropic(timeout=25.0, max_retries=1).messages.create(
+            model=model, max_tokens=max_tokens,
+            messages=[{"role": "user", "content": [{"type": "image", "source": {"type": "base64", "media_type": media, "data": b64}},
+                                                     {"type": "text", "text": prompt}]}])
+    except Exception as e:
+        raise LLMUnavailable(str(e))
+    pin, pout = PRICE.get(model, (3.0, 15.0))
+    led = _load(LEDGER, {"calls": []})
+    led["calls"].append({"t": time.time(), "model": model, "in": r.usage.input_tokens, "out": r.usage.output_tokens,
+                         "usd": r.usage.input_tokens * pin / 1e6 + r.usage.output_tokens * pout / 1e6, "kind": "vision"})
+    LEDGER.write_text(json.dumps(led))
+    return "".join(b.text for b in r.content if getattr(b, "type", "") == "text").strip()

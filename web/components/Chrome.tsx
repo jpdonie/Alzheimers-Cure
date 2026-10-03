@@ -1,8 +1,22 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { api } from "@/lib/engine";
 
 const STEPS = [["/capture", "Capture"], ["/debrief", "Debrief"], ["/map", "Work Map"], ["/teach", "Teach"]];
+
+function EngineBadge() {
+  const [h, setH] = useState<{ degraded: boolean; usage: { calls: number; est_usd: number } } | null | "down">(null);
+  useEffect(() => {
+    const tick = () => api.health().then(setH).catch(() => setH("down"));
+    tick(); const t = setInterval(tick, 5000); return () => clearInterval(t);
+  }, []);
+  if (h === "down") return <span className="chip border-coral text-coral">Engine offline</span>;
+  if (!h) return null;
+  return <span className={`chip ${h.degraded ? "border-amber bg-amber/20" : ""}`} title="Estimated API spend this machine; the provider balance is not exposed.">
+    {h.degraded ? "Degraded mode: cached/offline logic in use" : "Live"} · {h.usage.calls} LLM calls · ~${h.usage.est_usd.toFixed(3)}</span>;
+}
 
 export function Nav() {
   const p = usePathname();
@@ -14,6 +28,7 @@ export function Nav() {
           {STEPS.map(([href, label], i) => (
             <Link key={href} href={href} className={`chip ${p === href ? "bg-teal text-white" : ""}`}>{i + 1}. {label}</Link>))}
         </nav>
+        <span className="ml-auto"><EngineBadge /></span>
       </div>
     </header>
   );
