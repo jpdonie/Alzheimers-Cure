@@ -5,7 +5,7 @@ Read [docs/PROJECT.md](docs/PROJECT.md) before planning or changing code. Its li
 ## Single-source rule
 
 - Never create `V1`, `V2`, `final`, `new`, `old`, `min`, or similarly suffixed planning documents.
-- Update the canonical local document in place. Do not duplicate it for versioning.
+- Update the canonical document in place and use Git history. Do not duplicate it for versioning.
 - Do not create a second roadmap, requirements list, architecture plan, or UI prompt.
 - If two documents conflict, consolidate them into the canonical file named in `docs/PROJECT.md` before implementation.
 - Keep status in `docs/DELIVERY.md`; do not encode status by duplicating files.

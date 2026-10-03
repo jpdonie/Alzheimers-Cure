@@ -1,26 +1,21 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --color-paper: #faf7f2;
+  --color-ink: #1b2a2f;
+  --color-teal: #0f4c5c;
+  --color-sage: #dce8e2;
+  --color-amber: #e8a33d;
+  --color-coral: #d9544d;
+  --color-line: #d8d2c6;
+  --font-serif: "Source Serif 4", Georgia, serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
+body { background: var(--color-paper); color: var(--color-ink); font-size: 16px; }
+.card { background: white; border: 1px solid var(--color-line); border-radius: 1rem; padding: 1rem; }
+.btn { border-radius: .75rem; padding: .5rem .9rem; font-weight: 600; border: 1px solid var(--color-teal); }
+.btn-primary { background: var(--color-teal); color: white; }
+.btn-ghost { background: white; color: var(--color-teal); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.quote { font-family: var(--font-serif); border-left: 3px solid var(--color-teal); padding-left: .75rem; }
+.chip { display: inline-flex; align-items: center; gap: .25rem; border-radius: 999px; padding: .1rem .6rem; font-size: .8rem; border: 1px solid var(--color-line); background: white; }

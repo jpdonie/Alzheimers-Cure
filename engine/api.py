@@ -1,7 +1,8 @@
 """FastAPI surface for the web app. Run: uvicorn engine.api:app --port 8000"""
 import json
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+import base64
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -51,6 +52,13 @@ def events(e: Ev): return S().add_event(e.model_dump())
 
 @app.post("/frames")
 def frames(f: Frame): S().add_frame(f.event_id, f.data_url); return {"ok": True}
+
+@app.get("/frame/{event_id}")
+def frame(event_id: str):
+    d = S().frames.get(event_id)
+    if not d: raise HTTPException(404, "no frame")
+    head, _, b64 = d.partition(",")
+    return Response(base64.b64decode(b64), media_type="image/jpeg")
 
 @app.post("/question")
 def question(a: Ask): return S().propose_question(a.event_id, a.signals)
