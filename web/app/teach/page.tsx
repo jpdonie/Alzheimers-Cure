@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { api, type Block, type Form } from "@/lib/engine";
+import { api, explain, type Block, type Form } from "@/lib/engine";
 import { CareRecordSandbox, EMPTY } from "@/components/CareRecordSandbox";
 import { useVoiceAgent } from "@/lib/voice";
 
@@ -51,7 +51,7 @@ export default function Teach() {
     const b = await api.brief(id); voice.context(`The learner is on case ${x.title}. Expert reasoning for this case:\n${b.brief}`);
     voice.tell("SAY", `New case: ${x.title}. Before you touch the record, what would you do next?`);
   }, [voice]);
-  useEffect(() => { api.session("teach").then(() => api.cases()).then((x) => { setCases(x.teach); return open("T1"); }).catch(() => setErr("Engine not reachable on :8000")); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { api.session("teach").then(() => api.cases()).then((x) => { setCases(x.teach); return open("T1"); }).catch((e) => setErr(explain(e))); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const choose = async (k: string) => {
     setPicked(k);

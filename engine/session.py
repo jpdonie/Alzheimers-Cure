@@ -266,6 +266,11 @@ class Session:
                 "note": "Done means these checks pass; it does not prove complete understanding."}
 
     # ---------- work map
+    def _map_confirmed(self) -> bool:
+        """True only when every live step has been confirmed or corrected by the expert (no partial confirmation)."""
+        steps = self.workmap()["steps"]
+        return bool(steps) and all(st["teach_back"] in ("confirmed", "corrected") for st in steps)
+
     def map_version(self) -> str:
         """Content hash of what Teach consumes: slot states, live items, predicates and teach-back results."""
         import hashlib
@@ -301,9 +306,16 @@ class Session:
                           "versions": r.get("versions", [])})
         steps.sort(key=lambda s: s["screen_moment"]["ts"])
         for i, s in enumerate(steps): s["n"] = i + 1
+        seeded = [{"rule_id": r["id"], "title": r["title"], "risk": r["risk"],
+                   "context": r["slots"]["context"]["text"], "action": r["slots"]["action"]["text"], "rationale": r["slots"]["rationale"]["text"],
+                   "guardrails": [{"text": g["text"], "state": g["state"]} for g in r["slots"]["guardrails"]],
+                   "escalation": r["slots"]["escalation"]["text"], "predicate": guard.render(r["predicate"]), "severity": r["predicate"]["severity"],
+                   "evidence": self._source_evidence(r), "caution": r.get("caution", ""),
+                   "confidence": facets(r, 0, "none")["label"], "states": S.snapshot_states([r])[r["id"]]}
+                  for r in self.rules if r["id"] not in by_rule]
         asked_events = {q["event_id"] for q in self.questions if q["event_id"]}
         unexplained = [{"event_id": e["id"], "ts": e["ts"], "text": e["text"]} for e in self.events if e["id"] not in asked_events and e.get("field") != "save"]
-        return {"schema": "workmap/1", "map_version": self.map_version(), "steps": steps, "unexplained_events": unexplained, "drift": self.drift_log, "seeded_only_rules": [r["id"] for r in self.rules if r["id"] not in by_rule]}
+        return {"schema": "workmap/1", "map_version": self.map_version(), "steps": steps, "unexplained_events": unexplained, "drift": self.drift_log, "seeded_only_rules": [r["id"] for r in self.rules if r["id"] not in by_rule], "seeded_rules": seeded}
 
     @staticmethod
     def _source_evidence(r) -> list[dict]:
@@ -385,7 +397,7 @@ class Session:
     # ---------- teach
     def teach_open(self, case_id: str) -> dict:
         c = next(x for x in self.cases["teach_cases"] if x["id"] == case_id)
-        return {k: v for k, v in c.items() if k not in ("rule_ids",)} | {"map_version": self.map_version(), "map_confirmed": any(v in ("confirmed", "corrected") for v in self.teachback.values()), "predict": {"question": c["predict"]["question"], "options": c["predict"]["options"]}}
+        return {k: v for k, v in c.items() if k not in ("rule_ids",)} | {"map_version": self.map_version(), "map_confirmed": self._map_confirmed(), "predict": {"question": c["predict"]["question"], "options": c["predict"]["options"]}}
 
     def teach_predict(self, case_id: str, option: str) -> dict:
         c = next(x for x in self.cases["teach_cases"] if x["id"] == case_id)

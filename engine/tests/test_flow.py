@@ -238,3 +238,15 @@ def test_pain_and_swelling_language_requires_a_human_route():
             "pattern": "new", "observation": "She cried out, pain in the left foot"}
     assert t.teach_check_save("T1", form)["blocked"][-1]["guardrail_id"] == "SCOPE-clinical-escalation"
     assert t.teach_check_save("T1", {**form, "escalate_to": "team_meeting"})["saved"]
+
+
+def test_map_confirmed_requires_every_live_step():
+    s = Session("capture")
+    for field, val in (("checks", ["pain"]), ("intervention", "give_prn_medication")):
+        e = s.add_event({"field": field, "value": val, "delta": {"added": "pain"} if field == "checks" else None, "form": {}})["event"]
+        q = s.propose_question(e["id"], OK)["question"]; s.answer(q["id"], "The nurse decides.")
+    steps = s.workmap()["steps"]; assert len(steps) >= 2
+    s.confirm(steps[0]["rule_id"], True)
+    assert not s._map_confirmed()                       # partial confirmation is not confirmation
+    for st in steps[1:]: s.confirm(st["rule_id"], True)
+    assert s._map_confirmed()

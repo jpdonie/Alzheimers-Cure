@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api, type Provenance, type Step } from "@/lib/engine";
+import { api, explain, type Provenance, type SeededRule, type Step } from "@/lib/engine";
 
 const LABEL_COLOR: Record<string, string> = { low: "border-coral text-coral", medium: "border-amber bg-amber/20", high: "border-teal bg-teal text-white" };
 
@@ -24,12 +24,12 @@ function ProvRow({ p }: { p: Provenance }) {
 
 export default function WorkMap() {
   const [steps, setSteps] = useState<Step[]>([]);
-  const [seeded, setSeeded] = useState<string[]>([]);
+  const [seeded, setSeeded] = useState<SeededRule[]>([]);
   const [version, setVersion] = useState("");
   const [unexplained, setUnexplained] = useState<{ event_id: string; ts: number; text: string }[]>([]);
   const [open, setOpen] = useState<string>("");
   const [err, setErr] = useState("");
-  useEffect(() => { api.workmap().then((w) => { setSteps(w.steps); setSeeded(w.seeded_only_rules); setVersion(w.map_version); setUnexplained(w.unexplained_events); setOpen(w.steps[0]?.step_id ?? ""); }).catch(() => setErr("Engine not reachable on :8000")); }, []);
+  useEffect(() => { api.workmap().then((w) => { setSteps(w.steps); setSeeded(w.seeded_rules); setVersion(w.map_version); setUnexplained(w.unexplained_events); setOpen(w.steps[0]?.step_id ?? ""); }).catch((e) => setErr(explain(e))); }, []);
 
   return (
     <div className="space-y-3">
@@ -38,7 +38,7 @@ export default function WorkMap() {
         <Link href="/teach" className="btn btn-primary">Teach a new hire →</Link>
       </div>
       {err && <p className="text-coral">{err}</p>}
-      {!steps.length && !err && <p className="card">No steps yet. Run Capture first: the map is built from what the apprentice saw and what you explained.</p>}
+      {!steps.length && !err && <p className="card">No live steps yet. Run Capture to add steps from what the apprentice sees and you explain. The seeded map from the expert transcripts is below.</p>}
       <ol className="space-y-3">
         {steps.map((s) => (
           <li key={s.step_id} className="card">
@@ -84,7 +84,30 @@ export default function WorkMap() {
           </li>))}
       </ol>
       {unexplained.length > 0 && <div className="card text-sm"><b>Demonstrated but not explained yet (missing, not guessed):</b> {unexplained.map((u) => `${u.ts.toFixed(0)}s ${u.text}`).join("; ")}.</div>}
-      {seeded.length > 0 && <div className="card text-sm"><b>Known from transcripts only, never seen live:</b> {seeded.join(", ")}. These are hypotheses until an expert confirms them.</div>}
+      {seeded.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="text-lg font-bold">Seeded from expert transcripts <span className="chip ml-1">hypotheses, not yet confirmed live</span></h3>
+          <p className="text-sm">Curated from the de-identified interviews. Each rule keeps its source span and starts as a hypothesis; a live capture turns it into expert-stated, a teach-back into confirmed.</p>
+          {seeded.map((r) => (
+            <details key={r.rule_id} className="card">
+              <summary className="flex cursor-pointer flex-wrap items-center gap-2"><b>{r.title}</b>
+                <span className={`chip ${LABEL_COLOR[r.confidence]}`}>confidence: {r.confidence}</span><span className="chip">risk {r.risk}/3</span><span className="chip">{r.rule_id}</span></summary>
+              <div className="mt-2 grid gap-3 text-sm lg:grid-cols-2">
+                <div className="space-y-1">
+                  <p><b>Context:</b> {r.context}</p><p><b>Action:</b> {r.action}</p><p><b>Why:</b> {r.rationale}</p>
+                  {r.escalation && <p><b>Hand over to:</b> {r.escalation}</p>}
+                  <p className="font-mono text-xs">{r.severity === "block" ? "blocks Save when" : "warns when"}: {r.predicate}</p>
+                </div>
+                <div className="space-y-1">
+                  {r.guardrails.map((g) => <p key={g.text} className="rounded border border-amber bg-amber/10 p-2">{g.text} <span className="chip">{g.state}</span></p>)}
+                  {r.evidence.map((w, i) => w.kind === "dataset_summary"
+                    ? <p key={i} className="text-xs"><span className="chip">dataset summary, not a quotation</span> {w.summary} ({w.unit_id})</p>
+                    : <blockquote key={i} className="quote">“{w.quote}” <span className="text-xs">(transcript {w.unit_id}, verbatim)</span></blockquote>)}
+                  {r.caution && <p className="text-xs text-ink/70">Caveat: {r.caution}</p>}
+                </div>
+              </div>
+            </details>))}
+        </section>)}
     </div>
   );
 }

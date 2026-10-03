@@ -1,10 +1,12 @@
 "use client";
 import { ConversationProvider, useConversation } from "@elevenlabs/react";
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 export function VoiceProvider({ children }: { children: ReactNode }) {
   return <ConversationProvider>{children}</ConversationProvider>;
 }
+
+let activeRole: "interviewer" | "tutor" | null = null;   // the provider keeps one live conversation across pages
 
 type Opts = { role: "interviewer" | "tutor"; onUserMessage?: (text: string) => void };
 
@@ -17,7 +19,9 @@ export function useVoiceAgent({ role, onUserMessage }: Opts) {
     onVadScore: ({ vadScore }) => { if (vadScore > 0.45) lastVoice.current = Date.now(); },
     onError: (msg) => setError(String(msg)),
   });
-  const connected = conv.status === "connected";
+  const live = conv.status === "connected";
+  const connected = live && activeRole === role;
+  useEffect(() => { if (live && activeRole !== role) conv.endSession(); }, [live, role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const start = useCallback(async () => {
     setError(null);
@@ -26,6 +30,7 @@ export function useVoiceAgent({ role, onUserMessage }: Opts) {
       const j = await r.json();
       if (!j.signedUrl) throw new Error(j.error ?? "no signed url");
       await navigator.mediaDevices.getUserMedia({ audio: true });
+      activeRole = role;
       conv.startSession({ signedUrl: j.signedUrl });
     } catch (e) {
       setError(e instanceof Error ? e.message : "voice unavailable");

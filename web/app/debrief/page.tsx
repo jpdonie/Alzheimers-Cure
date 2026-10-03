@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { api, type Question } from "@/lib/engine";
+import { api, explain, type Question } from "@/lib/engine";
 import { useVoiceAgent } from "@/lib/voice";
 
 type Status = Awaited<ReturnType<typeof api.debriefStatus>>;
@@ -30,7 +30,7 @@ export default function Debrief() {
   }, [refresh]);
   const voice = useVoiceAgent({ role: "interviewer", onUserMessage: (t) => { buf.current += " " + t; clearTimeout(timer.current); timer.current = setTimeout(() => submit(buf.current), 3000); } });
 
-  useEffect(() => { api.debriefStart().then((d) => { setQs(d.questions); refresh(); }).catch(() => setErr("Engine not reachable on :8000")); }, [refresh]);
+  useEffect(() => { api.debriefStart().then((d) => { setQs(d.questions); refresh(); }).catch((e) => setErr(explain(e))); }, [refresh]);
   useEffect(() => { if (cur) voice.tell("ASK", cur.text); }, [cur?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const startTeachBack = async () => { const t = await api.teachback(); setTb(t); voice.tell("TEACHBACK", t.text); };
@@ -47,7 +47,7 @@ export default function Debrief() {
             <h2 className="text-lg font-bold">Debrief: what I am still unsure about</h2>
             <button className="btn btn-primary" onClick={voice.start} disabled={voice.connected}>{voice.connected ? "Voice connected" : "Start voice"}</button>
           </div>
-          {err && <p className="text-coral">{err}</p>}
+          {err && <p className="text-coral">{err} <Link href="/capture" className="underline">Go to Capture</Link></p>}
           <p className="text-sm">Ranked by risk and missing knowledge. These were not answered during the task.</p>
           <ol className="mt-2 space-y-2">
             {qs.map((q, i) => (

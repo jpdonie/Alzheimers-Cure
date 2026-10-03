@@ -74,3 +74,14 @@ def test_sessions_are_isolated_per_client():
 def test_debrief_requires_something_captured():
     c.post("/session", json={"mode": "capture"}, headers={"x-session-id": "carol"})
     assert c.post("/debrief/start", json={}, headers={"x-session-id": "carol"}).status_code == 409
+
+
+def test_work_map_is_seeded_before_any_capture():
+    h = {"x-session-id": "seed-check"}
+    c.post("/session", json={"mode": "capture"}, headers=h)
+    wm = c.get("/workmap", headers=h).json()
+    assert wm["steps"] == [] and len(wm["seeded_rules"]) == 6
+    r1 = next(r for r in wm["seeded_rules"] if r["rule_id"] == "R1-somatic-first")
+    assert r1["confidence"] == "medium" and r1["predicate"]          # two sessions corroborate it, yet it is still unconfirmed live
+    assert next(r for r in wm["seeded_rules"] if r["rule_id"] == "R5-habitual-vs-new")["confidence"] == "low"   # single source and any(e["kind"] == "transcript" for e in r1["evidence"])
+    assert all(g["state"] == "hypothesized" for r in wm["seeded_rules"] for g in r["guardrails"])

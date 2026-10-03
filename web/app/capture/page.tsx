@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { api, type Form, type Gate, type Question, type SandboxEvent } from "@/lib/engine";
+import { api, explain, type Form, type Gate, type Question, type SandboxEvent } from "@/lib/engine";
 import { CareRecordSandbox, EMPTY } from "@/components/CareRecordSandbox";
 import { PauseGate, QuestionCaption } from "@/components/QuestionPanel";
 import { useVoiceAgent } from "@/lib/voice";
@@ -45,7 +45,7 @@ export default function Capture() {
     bufTimer.current = setTimeout(() => submitAnswer(buf.current), 3000);
   } });
 
-  useEffect(() => { api.session("capture").then((s) => setScenario(s.capture_scenario)).catch(() => setNote("Engine not reachable on :8000")); }, []);
+  useEffect(() => { api.session("capture").then((s) => setScenario(s.capture_scenario)).catch((e) => setNote(explain(e))); }, []);
 
   const grabFrame = useCallback(async (eventId: string) => {
     const v = video.current, el = document.getElementById("sandbox");
