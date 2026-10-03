@@ -3,7 +3,7 @@ import json, os, time, uuid
 from copy import deepcopy
 from pathlib import Path
 
-from . import guard, slots as S, drift, llm
+from . import guard, slots as S, llm
 from .confidence import facets
 from .mastery import Mastery
 from .privacy import redact
@@ -45,7 +45,9 @@ def describe(ev: dict) -> str:
 
 
 class Session:
-    def __init__(self, mode="capture"):
+    def __init__(self, mode="capture", drift=None):
+        """`drift` is an optional extension adapter (engine.drift); the live path never requires it."""
+        self.drift = drift
         self.id = nid("S"); self.mode = mode; self.t0 = time.time()
         self.rules = load_rules(); self.cases = load_cases()
         self.events, self.questions, self.answers = [], [], []
@@ -74,8 +76,8 @@ class Session:
         ev["text"] = describe(ev)
         self.events.append(ev)
         out = {"event": ev, "drift_question": None}
-        if ev.get("field") == "save" and self.mode == "capture":
-            for c in drift.contradictions(self.rules, ev.get("form", {})):
+        if self.drift and ev.get("field") == "save" and self.mode == "capture":
+            for c in self.drift.contradictions(self.rules, ev.get("form", {})):
                 r = self.rule(c["rule_id"]); S.apply_state(r, "guardrails", "conflicted"); r["conflicted"] = True
                 self.drift_log.append({"rule_id": r["id"], "event_id": ev["id"], "ts": ev["ts"], "trace": c["trace"], "disposition": "pending"})
                 q = self._mk_question(r, "guardrails", 0, ev, qtype="drift",
@@ -142,7 +144,7 @@ class Session:
             return {"dont_know": dk, "slot_text": text if not dk else "", "exceptions": [text] if q["slot"] == "exceptions" and not dk else [],
                     "guardrails": [text] if q["slot"] == "guardrails" and not dk else [], "escalation": text if q["slot"] == "escalation" and not dk else "",
                     "contradicts_rule": q["type"] == "drift" and any(p in low for p in ["exception", "because", "changed"]) and False,
-                    "threshold": drift.extract_threshold(text) if rule["id"] == "R3-repeat-escalate" and "time" in low else None}
+                    "threshold": self.drift.extract_threshold(text) if self.drift and rule["id"] == "R3-repeat-escalate" and "time" in low else None}
 
     def answer(self, qid: str, text: str, ts: float | None = None) -> dict:
         q = next(x for x in self.questions if x["id"] == qid)
@@ -177,8 +179,8 @@ class Session:
                 v["live_text"] = ex["escalation"]
             if ex.get("slot_text") and not isinstance(v, list):
                 v["live_text"] = ex["slot_text"]
-            if ex.get("threshold") is not None and rule["id"] == "R3-repeat-escalate":
-                upd = drift.boundary_update(rule, "occurrences_today", ex["threshold"], clean, ts)
+            if self.drift and ex.get("threshold") is not None and rule["id"] == "R3-repeat-escalate":
+                upd = self.drift.boundary_update(rule, "occurrences_today", ex["threshold"], clean, ts)
                 if upd:
                     self.drift_log.append({"rule_id": rule["id"], "event_id": q["event_id"], "ts": ts, "boundary": upd, "disposition": "pending"})
         after = S.snapshot_states([rule])[rule["id"]]

@@ -1,56 +1,55 @@
-"""Load the de-identified dementia-care dataset into CareRule objects with provenance."""
+"""Seed corpus loader: the whole de-identified dataset as typed units with literal provenance.
+Used for retrieval, evaluation and corroboration; only the curated rules in care_map/ are executable guardrails."""
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
 DATA = Path(__file__).resolve().parent.parent / "data" / "dementia_care_knowledge_deidentified.json"
+EXTRACTION_VERSION = "ingest-1"
 
 
-@dataclass
-class Provenance:
+@dataclass(frozen=True)
+class Span:
     session: str
-    turn_ids: list[str]
+    unit_id: str
+    turn_ids: tuple
     start: str
     end: str
-    quote: str
+    speaker: str
+    text: str            # literal turn text (English translation where the source was French)
 
 
 @dataclass
-class CareRule:
-    rule_id: str
+class Unit:
+    unit_id: str
+    session: str
     domain: str
-    context: str
-    action: str
+    subtopic: str
+    source_type: str
+    priority: str
+    answer: str
     rationale: str
-    exceptions: list[str]
-    guardrails: list[str]
-    provenance: list[Provenance] = field(default_factory=list)
-    confidence: float = 0.5
-    priority: str = ""
+    branches: list[str]          # each practice rule stays a separate conditional branch
+    caveat: str                  # evidence caveat, NOT an exception
+    spans: list[Span] = field(default_factory=list)
+    gold_eligible: bool = True   # interviewer hypotheses are never clinical gold
 
 
-def load_rules(path: Path = DATA) -> list[CareRule]:
+def load_units(path: Path = DATA) -> list[Unit]:
     d = json.loads(Path(path).read_text())
-    rules = []
+    units = []
     for s in d["sessions"]:
         turns = {t["turn_id"]: t for t in s["dialogue"]}
         for u in s["knowledge_units"]:
-            ids = u.get("dialogue_turn_ids", [])
-            quote = " ".join(turns[i]["text"] for i in ids[:2] if i in turns)[:400]
-            rules.append(CareRule(
-                rule_id=u["unit_id"],
-                domain=u["domain"],
-                context=u["subtopic"],
-                action="; ".join(u.get("practice_rules", [])),
-                rationale=u.get("clinical_rationale_why", ""),
-                exceptions=[u["cautions_or_corrections"]] if u.get("cautions_or_corrections") else [],
-                guardrails=[],  # filled by LLM slot-extraction / uncertainty loop
-                provenance=[Provenance(s["session_id"], ids, u["start"], u["end"], quote)],
-                priority=u.get("apprentice_priority", ""),
-            ))
-    return rules
+            spans = [Span(s["session_id"], u["unit_id"], (i,), turns[i]["start"], turns[i]["end"], turns[i]["speaker"],
+                          turns[i]["english_translation"] or turns[i]["text"])
+                     for i in u.get("dialogue_turn_ids", []) if i in turns]
+            units.append(Unit(u["unit_id"], s["session_id"], u["domain"], u["subtopic"], u["source_type"], u.get("apprentice_priority", ""),
+                              u.get("expert_answer", ""), u.get("clinical_rationale_why", ""), list(u.get("practice_rules", [])),
+                              u.get("cautions_or_corrections", ""), spans, gold_eligible="hypothesis" not in u["source_type"].lower()))
+    return units
 
 
 if __name__ == "__main__":
-    r = load_rules()
-    print(len(r), "rules;", sum(1 for x in r if x.provenance), "with provenance")
+    us = load_units()
+    print(len(us), "units;", sum(u.gold_eligible for u in us), "gold-eligible;", sum(bool(u.branches) for u in us), "with rule branches")

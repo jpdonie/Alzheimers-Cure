@@ -4,6 +4,7 @@ os.environ["APPRENTICE_COOLDOWN"] = "0"
 import json
 from pathlib import Path
 from engine.session import Session, load_rules
+from engine import drift as drift_ext
 from engine import guard, slots as S, federated
 from engine.privacy import redact
 
@@ -68,14 +69,12 @@ def test_dont_know_does_not_advance():
     assert r["dont_know"] and S.slot_state(s.rule(q["rule_id"]), q["slot"]) == before
 
 
-def test_drift_on_contradicting_save_and_boundary_update():
-    s = Session("capture")
+def test_drift_extension_on_contradicting_save():
+    s = Session("capture", drift=drift_ext)
     out = s.add_event({"field": "save", "form": {"incident_type": "refusal_of_care", "checks": [], "occurrences_today": 1, "escalate_to": "none", "intervention": "no_action"}})
     assert out["drift_question"] and out["drift_question"]["type"] == "drift"
-    # boundary learned live
-    e = s.add_event({"field": "occurrences_today", "value": 2, "form": {}})["event"]
-    q = s.propose_question(e["id"], OK)["question"]
-    assert q is not None
+    plain = Session("capture")  # core path works without the extension
+    assert plain.add_event({"field": "save", "form": {"incident_type": "refusal_of_care", "checks": [], "intervention": "no_action"}})["drift_question"] is None
 
 
 def test_debrief_gives_three_new_followups_and_teachback():

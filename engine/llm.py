@@ -43,7 +43,7 @@ def complete(system: str, user: str, model: str = FAST, max_tokens: int = 800, c
         raise LLMUnavailable("no key or offline mode")
     import anthropic
     try:
-        cl = anthropic.Anthropic()
+        cl = anthropic.Anthropic(timeout=25.0, max_retries=1)
         r = cl.messages.create(model=model, max_tokens=max_tokens, system=system,
                                messages=[{"role": "user", "content": user}])
     except Exception as e:  # network, rate limit, auth
