@@ -228,7 +228,7 @@ def test_workmap_lists_demonstrated_events_without_explanations():
     s = Session("capture")
     s.add_event({"field": "observation", "value": "refuses tray", "form": {}})
     wm = s.workmap()
-    assert wm["unexplained_events"] and wm["unexplained_events"][0]["text"].startswith("changed observation")
+    assert wm["unexplained_events"] and wm["unexplained_events"][0]["text"] == "wrote a free-text observation"
 
 
 def test_pain_and_swelling_language_requires_a_human_route():
@@ -270,3 +270,79 @@ def test_review_persists_changes_evidence_class_and_rejected_rules_do_not_fire()
     s3 = Session("teach"); s3.teach_predict("T1", "b")
     assert not any(b["rule_id"] == "R1-somatic-first" for b in s3.teach_check_save("T1", {"incident_type": "refusal_of_care", "checks": [], "occurrences_today": 1, "escalate_to": "none"})["blocked"])
     s.review("R1-somatic-first", "reset")
+
+
+# ---------- the afternoon-wandering micro case (startup team's composite demo scenario)
+def test_composite_case_spans_exist_in_the_supplied_case_text():
+    import json, re, html
+    from pathlib import Path
+    case = json.loads((Path(__file__).resolve().parents[1] / "care_map" / "micro_case_wandering.json").read_text())
+    src = Path(__file__).resolve().parents[2] / "data" / "source" / "micro-case-afternoon-wandering.html"
+    if not src.exists():
+        import pytest; pytest.skip("source html not on this machine")
+    raw = re.sub(r"<style.*?</style>|<script.*?</script>", "", src.read_text(encoding="utf-8"), flags=re.S)
+    text = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", raw)))
+    assert all(sp in text for sp in case["evidence_spans"])
+    for r in load_rules():
+        for s in r["sources"]:
+            if s["kind"] == "composite":
+                assert s["quote_span"] in case["evidence_spans"] and s["session"] == "COMPOSITE"
+
+
+def test_composite_case_is_labelled_and_never_counts_as_an_interview_session():
+    s = Session("teach")
+    r7 = s.rule("R7-wandering-basic-needs")
+    ex = s._explain(r7)
+    assert any(c["kind"] == "composite_case" for c in ex["composite_cases"]) and not any("toilet" in w["quote"].lower() for w in ex["expert_words"])
+    from engine.confidence import facets
+    f = facets(r7, 0, "none")
+    assert "COMPOSITE" not in f["sessions"] and f["sessions"] == ["S05", "S13"]
+
+
+def test_the_wrong_answers_of_the_micro_case_are_each_stopped_before_save():
+    t = Session("teach"); t.teach_predict("T4", "a")
+    base = {"incident_type": "wandering", "checks": [], "occurrences_today": 1, "escalate_to": "none", "months_in_residence": 24, "observation": "pacing doors 15:50", "pattern": "new"}
+    def blocked(form): return {b["rule_id"] for b in t.teach_check_save("T4", {**base, **form})["blocked"]}
+    assert "R7-wandering-basic-needs" in blocked({"intervention": "request_antipsychotic", "interpretation": "sundowning"})      # sundowning -> antipsychotic
+    assert "R4-treatment-routing" in blocked({"intervention": "request_antipsychotic", "checks": ["toileting"]})                # still a medication decision for a human
+    assert "R10-integration-is-for-newcomers" in blocked({"intervention": "integration_plan_review", "checks": ["toileting"]})  # exit-seeking, so rework integration
+    assert "R7-wandering-basic-needs" in blocked({"intervention": "add_activities"})                                           # boredom, so add activities
+    ok = t.teach_check_save("T4", {**base, "checks": ["toileting", "signage_routine"], "intervention": "prompted_toileting"})
+    assert ok["saved"] and not ok["warnings"]                                                                                   # the expert's answer passes cleanly
+
+
+def test_a_newcomer_still_gets_the_integration_rule_but_a_long_term_resident_does_not():
+    t = Session("teach"); t.teach_predict("T2", "a")
+    newcomer = {"incident_type": "exit_seeking", "intervention": "retry_later_same_carer", "checks": [], "months_in_residence": 0, "escalate_to": "none", "observation": "x"}
+    assert "R6-exit-seeking" in {b["rule_id"] for b in t.teach_check_save("T2", newcomer)["blocked"]}
+    veteran = {**newcomer, "months_in_residence": 24}
+    assert "R6-exit-seeking" not in {b["rule_id"] for b in t.teach_check_save("T2", veteran)["blocked"]}
+
+
+def test_refusal_rules_do_not_compete_for_a_question_about_a_wandering_incident():
+    s = Session("capture")
+    e = s.add_event({"field": "checks", "value": ["toileting"], "delta": {"added": "toileting"}, "form": {"incident_type": "wandering", "checks": ["toileting"]}})["event"]
+    q = s.propose_question(e["id"], OK)["question"]
+    assert q and q["rule_id"] in ("R7-wandering-basic-needs", "R8-environment-routine", "R4-treatment-routing", "R5-habitual-vs-new", "R9-read-the-narrative", "R10-integration-is-for-newcomers")
+    assert q["rule_id"] not in ("R1-somatic-first", "R2-interaction-first")
+
+
+def test_the_capture_scenario_is_the_micro_case_without_its_answer():
+    sc = Session("capture").cases["capture_scenario"]
+    blob = json.dumps(sc).lower()
+    assert sc["resident"] == "Mr. D" and len(sc["record"]["entries"]) == 3 and "sundowning" in sc["task"].lower()
+    assert "toilet sign" not in blob and "looking for the toilet" not in blob            # the root cause must stay hidden from the expert's screen
+
+
+def test_the_apprentice_asks_the_rule_that_watches_what_the_expert_just_did():
+    s = Session("capture")
+    base = {"incident_type": "wandering", "months_in_residence": 24, "observation": "x"}
+    def ask(field, val, delta, checks):
+        e = s.add_event({"field": field, "value": val, "delta": delta, "form": {**base, "checks": checks}})["event"]
+        q = s.propose_question(e["id"], OK)["question"]
+        if q: s.answer(q["id"], "Because it is safer.")
+        return q
+    assert ask("checks", ["toileting"], {"added": "toileting"}, ["toileting"])["rule_id"] == "R7-wandering-basic-needs"
+    assert ask("checks", ["toileting", "signage_routine"], {"added": "signage_routine"}, ["toileting", "signage_routine"])["rule_id"] == "R8-environment-routine"
+    assert ask("intervention", "prompted_toileting", None, ["toileting"])["rule_id"] == "R7-wandering-basic-needs"
+    assert ask("intervention", "give_prn_medication", None, ["toileting"])["rule_id"] == "R4-treatment-routing"

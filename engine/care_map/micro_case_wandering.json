@@ -1,0 +1,37 @@
+{
+  "id": "MICRO-CASE-WANDERING",
+  "title": "Afternoon wandering",
+  "provenance": "Composite case supplied by the startup team for hackathon use. Method steps come from de-identified expert sessions; resident details, timings and the repainting event are invented for the exercise. It is a composite case, not an interview.",
+  "resident": {"name": "Mr. D", "age": 81, "diagnosis": "Alzheimer's, mid-stage", "in_residence": "2 years", "months_in_residence": 24},
+  "entries": [
+    {"when": "Day 1, 16:05", "text": "Walking corridor again, opening doors, agitated. Redirected to lounge.", "code": "wandering"},
+    {"when": "Day 3, 16:40", "text": "Wet trousers, changed. Seemed upset.", "code": "hygiene"},
+    {"when": "Day 6, 15:50", "text": "Pacing east corridor, trying several doors. Calmer after being taken to bathroom.", "code": "wandering"}
+  ],
+  "facility_log": "East corridor repainted. Door plaques removed, to be refitted. (maintenance)",
+  "routine": "Afternoon drinks round at 15:00 daily. Episodes on 14 of the last 14 days, none before that.",
+  "team_question": "The team meeting asks: is this sundowning, and should the physician consider an antipsychotic? What is causing the wandering, and what should happen next?",
+  "expert_walkthrough": [
+    "Observe: corridor wandering and door-trying, around 15:30 to 16:30",
+    "Classify and set baseline: a behaviour, not a refusal; new, not habitual; 14 of 14 days",
+    "Rule out body and basic needs: pain, hunger, thirst, toileting, glasses, hearing aids",
+    "Check environment and routine: noise, schedule changes, lighting, signage",
+    "Rule out other explanations: exit-seeking, sundowning, boredom",
+    "Root cause: he is looking for the toilet",
+    "Prompted toileting about 20 minutes after the drinks round; restore toilet signage (picture plus word, eye level)",
+    "Re-measure against baseline; revise the care plan only if the change lasts"
+  ],
+  "answers_that_lose_points": [
+    "Sundowning, so ask for an antipsychotic",
+    "Exit-seeking, so rework his integration",
+    "Boredom, so add activities",
+    "Trusting the coded field instead of the free text and the timing"
+  ],
+  "evidence_spans": [
+    "An unmet toileting need he can no longer solve because the visual cue is gone",
+    "Sundowning, so ask for an antipsychotic. Skips the method's first rule: check the body and basic needs before blaming the disease.",
+    "That pattern belongs to newcomers in their first weeks; he has lived here two years.",
+    "The link only appears in the free text and the timing.",
+    "Plaques taken down for repainting the same week wandering began"
+  ]
+}

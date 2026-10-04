@@ -26,7 +26,8 @@ def load_reviews() -> dict:
         return {}
 LABEL = {"retry_later_same_carer": "retry later with the same carer", "swap_carer_or_call_psychologist": "swap carer / call the psychologist",
          "reassure_and_note": "reassure and note it", "give_prn_medication": "give PRN medication", "adjust_diet": "adjust the diet",
-         "integration_plan_review": "review the integration plan", "no_action": "take no action"}
+         "integration_plan_review": "review the integration plan", "no_action": "take no action",
+         "prompted_toileting": "prompt toileting", "restore_signage": "restore the signage", "request_antipsychotic": "ask the physician for an antipsychotic", "add_activities": "add activities"}
 BUDGET_PER_10MIN = int(os.getenv("APPRENTICE_Q_BUDGET", "5"))
 COOLDOWN = float(os.getenv("APPRENTICE_COOLDOWN", "20"))
 STALE = 12.0
@@ -58,6 +59,8 @@ def describe(ev: dict) -> str:
     if f == "pattern": return f"marked the behaviour as '{v}'"
     if f == "interpretation": return f"chose the interpretation '{str(v).replace('_', ' ')}'"
     if f == "incident_type": return f"set the incident type to '{str(v).replace('_', ' ')}'"
+    if f == "months_in_residence": return f"set months in residence to {v}"
+    if f == "observation": return "wrote a free-text observation"
     if f == "save": return "pressed Save"
     return f"changed {f}"
 
@@ -208,7 +211,9 @@ class Session:
         if any(q for q in self.questions if q["event_id"] == event_id):
             return {"question": None, "reason": "event already asked about", "gate": gate}
         g_asked = any(q["type"] == "guardrail" for q in asked)
-        cands = S.candidates(self.rules, [q for q in self.questions], ev.get("field"), None, g_asked)
+        incident = (ev.get("form") or {}).get("incident_type")
+        what = (ev.get("delta") or {}).get("added") or ev.get("value")        # the checkbox just ticked, or the value just chosen
+        cands = S.candidates(self.rules, [q for q in self.questions], ev.get("field"), None, g_asked, incident, what)
         if not cands:
             return {"question": None, "reason": "no uncertain slot relevant to this screen event", "gate": gate}
         top = cands[0]
@@ -354,7 +359,7 @@ class Session:
                           "unresolved_slots": unresolved, "teach_back": self.teachback.get(rid, "none"),
                           "confidence": facets(r, live_n, self.teachback.get(rid, "none"), r.get("reviewed", "")), "reviewed": r.get("reviewed", ""), "review_note": r.get("review_note", ""),
                           "provenance": [{"kind": "screen", "event_id": q["event_id"], "ts": q["ts"]} for q in qs] +
-                                        [{"kind": "transcript", "unit_id": s["unit_id"], "session": s["session"], "turn_ids": s["turn_ids"],
+                                        [{"kind": "composite" if s["kind"] == "composite" else "transcript", "unit_id": s["unit_id"], "session": s["session"], "turn_ids": s["turn_ids"],
                                           "span": s["quote_span"], "verbatim": s["kind"] == "verbatim"} for s in r["sources"]],
                           "versions": r.get("versions", []), "related": related(r), "guidelines": context_for(r), "public": public_context(r), "cbt": cbt_check(r)})
         steps.sort(key=lambda s: s["screen_moment"]["ts"])
@@ -377,9 +382,13 @@ class Session:
         out = []
         for s in r["sources"]:
             base = {"unit_id": s["unit_id"], "turn": s["quote_turn"], "session": s["session"]}
-            out.append({"kind": "transcript", "quote": s["quote_span"], **base} if s["kind"] == "verbatim"
-                       else {"kind": "dataset_summary", "summary": s["quote_span"], **base})
-        return sorted(out, key=lambda e: e["kind"] != "transcript")   # verbatim first
+            if s["kind"] == "verbatim":
+                out.append({"kind": "transcript", "quote": s["quote_span"], **base})
+            elif s["kind"] == "composite":      # the startup team's composite micro case: invented details, not an interview
+                out.append({"kind": "composite_case", "quote": s["quote_span"], **base})
+            else:
+                out.append({"kind": "dataset_summary", "summary": s["quote_span"], **base})
+        return sorted(out, key=lambda e: ["transcript", "dataset_summary", "composite_case"].index(e["kind"]))   # verbatim interview words first
 
     def teachback_text(self) -> dict:
         wm = self.workmap()["steps"]
@@ -484,6 +493,7 @@ class Session:
         words += [e for e in src if e["kind"] == "transcript"][:2]
         return {"rule_id": r["id"], "title": r["title"], "expert_words": words,
                 "dataset_summaries": [e for e in src if e["kind"] == "dataset_summary"][:2],
+                "composite_cases": [e for e in src if e["kind"] == "composite_case"][:2],
                 "screen_moment": {"event_id": live[0]["event_id"], "ts": live[0]["ts"], "frame": live[0]["frame"]} if live else None}
 
     def teach_check_save(self, case_id: str, form: dict) -> dict:

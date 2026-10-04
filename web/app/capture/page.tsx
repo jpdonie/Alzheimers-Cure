@@ -1,12 +1,12 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { api, explain, type Form, type Gate, type Question, type SandboxEvent } from "@/lib/engine";
+import { api, explain, type Form, type Gate, type Question, type SandboxEvent, type Scenario } from "@/lib/engine";
 import { CareRecordSandbox, EMPTY } from "@/components/CareRecordSandbox";
 import { PauseGate, QuestionCaption } from "@/components/QuestionPanel";
 import { useVoiceAgent } from "@/lib/voice";
 
-const DEBOUNCED = new Set(["observation", "occurrences_today"]);
+const DEBOUNCED = new Set(["observation", "occurrences_today", "months_in_residence"]);
 const NO_RETRY = ["fresh", "already asked", "no uncertain slot", "unknown event"];
 
 export default function Capture() {
@@ -15,7 +15,7 @@ export default function Capture() {
   const [question, setQuestion] = useState<Question | null>(null);
   const [asked, setAsked] = useState<Question[]>([]);
   const [gate, setGate] = useState<Gate>({});
-  const [scenario, setScenario] = useState<{ title: string; resident: string; facts: string[]; note: string } | null>(null);
+  const [scenario, setScenario] = useState<Scenario | null>(null);
   const [offRecord, setOffRecord] = useState(false);
   const [typed, setTyped] = useState("");
   const [note, setNote] = useState<string>("");
@@ -45,7 +45,7 @@ export default function Capture() {
     bufTimer.current = setTimeout(() => submitAnswer(buf.current), 3000);
   } });
 
-  useEffect(() => { api.session("capture").then((s) => setScenario(s.capture_scenario)).catch((e) => setNote(explain(e))); }, []);
+  useEffect(() => { api.session("capture").then((s) => { setScenario(s.capture_scenario); if (s.capture_scenario.form_start) setForm((f) => ({ ...f, ...s.capture_scenario.form_start })); }).catch((e) => setNote(explain(e))); }, []);
 
   const grabFrame = useCallback(async (eventId: string) => {
     const v = video.current, el = document.getElementById("sandbox");
@@ -128,8 +128,8 @@ export default function Capture() {
   return (
     <div className="grid gap-4 lg:grid-cols-5">
       <section className="space-y-3 lg:col-span-3">
-        {scenario && <div className="card bg-sage"><b>Your task (fake data): {scenario.title}.</b> {scenario.note}</div>}
-        <CareRecordSandbox resident={scenario?.resident ?? "R-204"} form={form} facts={scenario?.facts} onChange={onChange} onActivity={() => { lastActivity.current = Date.now(); }}
+        {scenario && <div className="card bg-sage"><b>Your task (fake data): {scenario.title}.</b> {scenario.note}{scenario.task && <p className="mt-1">{scenario.task}</p>}</div>}
+        <CareRecordSandbox resident={scenario?.resident ?? "Mr. D"} form={form} facts={scenario?.facts} record={scenario?.record} onChange={onChange} onActivity={() => { lastActivity.current = Date.now(); }}
           onSave={() => flush().then(() => emit("save", true, form))} />
         <div className="card">
           <h3 className="font-semibold mb-2">Screen events {sharing ? "· frames cropped to this form" : "· DOM events only"}</h3>

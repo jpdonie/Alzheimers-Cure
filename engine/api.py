@@ -48,27 +48,28 @@ def S() -> Session:
 
 
 class NewSession(BaseModel): mode: Literal["capture", "teach"] = "capture"
-Interp = Literal["none", "behavioural_agitation", "physical_cause_suspected", "environmental", "unknown"]
-Check = Literal["pain", "footwear_skin", "hunger_thirst", "hearing_vision_aids", "noise_environment", "toileting"]
-Interv = Literal["no_action", "retry_later_same_carer", "swap_carer_or_call_psychologist", "reassure_and_note", "give_prn_medication", "adjust_diet", "integration_plan_review"]
+Interp = Literal["none", "behavioural_agitation", "physical_cause_suspected", "environmental", "unmet_basic_need", "sundowning", "boredom", "unknown"]
+Check = Literal["pain", "footwear_skin", "hunger_thirst", "hearing_vision_aids", "noise_environment", "toileting", "signage_routine"]
+Interv = Literal["no_action", "retry_later_same_carer", "swap_carer_or_call_psychologist", "reassure_and_note", "give_prn_medication", "request_antipsychotic", "adjust_diet", "integration_plan_review", "prompted_toileting", "restore_signage", "add_activities"]
 Escal = Literal["none", "nurse", "psychologist", "team_meeting", "coordinating_physician"]
 
 
 class FormIn(BaseModel):
     """The sandbox form, validated at the boundary (the guard evaluates this exact shape)."""
     model_config = ConfigDict(extra="forbid")
-    incident_type: Literal["refusal_of_care", "exit_seeking", "medication_request", "other"] = "refusal_of_care"
+    incident_type: Literal["refusal_of_care", "exit_seeking", "wandering", "medication_request", "other"] = "refusal_of_care"
     observation: str = Field("", max_length=1000)
     interpretation: Interp = "none"
-    checks: list[Check] = Field(default_factory=list, max_length=6)
+    checks: list[Check] = Field(default_factory=list, max_length=7)
     occurrences_today: int = Field(1, ge=0, le=50)
+    months_in_residence: int = Field(0, ge=0, le=600)
     pattern: Literal["", "new", "habitual", "unsure"] = ""
     intervention: Interv = "no_action"
     escalate_to: Escal = "none"
 
 
 class Ev(BaseModel):
-    field: Literal["incident_type", "observation", "interpretation", "checks", "occurrences_today", "pattern", "intervention", "escalate_to", "save"]
+    field: Literal["incident_type", "observation", "interpretation", "checks", "occurrences_today", "months_in_residence", "pattern", "intervention", "escalate_to", "save"]
     value: object = None; delta: dict | None = None; form: FormIn | None = None
 class Frame(BaseModel): event_id: str = Field(max_length=40); data_url: str = Field(max_length=2_000_000, pattern=r"^data:image/(jpeg|png);base64,")
 class Ask(BaseModel): event_id: str; signals: dict

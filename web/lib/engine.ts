@@ -3,8 +3,13 @@ export const ENGINE = process.env.NEXT_PUBLIC_ENGINE_URL ?? "http://localhost:80
 
 export type Form = {
   incident_type: string; observation: string; interpretation: string; checks: string[];
-  occurrences_today: number; pattern: string; intervention: string; escalate_to: string;
+  occurrences_today: number; months_in_residence: number; pattern: string; intervention: string; escalate_to: string;
 };
+export type CaseRecord = {
+  resident: { name: string; age: number; diagnosis: string; in_residence: string };
+  entries: { when: string; text: string; code: string }[]; facility_log: string; routine: string;
+};
+export type Scenario = { id?: string; title: string; resident: string; note: string; task?: string; facts?: string[]; record?: CaseRecord; form_start?: Partial<Form> };
 export type SandboxEvent = {
   id: string; ts: number; text: string; field: string; value?: unknown; form?: Partial<Form>;
 };
@@ -15,6 +20,7 @@ export type Question = {
 export type Gate = Record<string, boolean>;
 export type Provenance = Record<string, unknown> & { kind: string };
 export type Evidence = { kind: string; quote?: string; summary?: string; unit_id?: string; ts?: number };
+export const COMPOSITE_NOTE = "composite case supplied by the startup team: invented details, not an interview";
 export type Step = {
   n: number; step_id: string; rule_id: string; title: string; decision: string;
   screen_moment: { event_id: string; ts: number; text: string; form?: Partial<Form>; frame: boolean; vision?: string | null };
@@ -46,7 +52,7 @@ export type CareGraphData = { nodes: GraphNode[]; edges: GraphEdge[]; stats: { n
 export type Block = {
   rule_id: string; title: string; message: string; text: string; guardrail_id: string; evidence_class: string;
   trace: { field: string; op: string; expected: unknown; observed: unknown; met: boolean }[];
-  explain: { expert_words: { kind: string; quote: string; unit_id?: string; turn?: string; ts?: number }[]; dataset_summaries: { summary: string; unit_id: string }[]; screen_moment: { event_id: string; ts: number; frame: boolean } | null };
+  explain: { expert_words: { kind: string; quote: string; unit_id?: string; turn?: string; ts?: number }[]; dataset_summaries: { summary: string; unit_id: string }[]; composite_cases?: { quote: string; unit_id: string }[]; screen_moment: { event_id: string; ts: number; frame: boolean } | null };
 };
 
 export class EngineError extends Error {
@@ -77,8 +83,8 @@ async function call<T>(path: string, body?: unknown, method = body ? "POST" : "G
 }
 export const api = {
   health: () => call<{ ok: boolean; degraded: boolean; usage: { calls: number; est_usd: number } }>("/health"),
-  session: (mode: "capture" | "teach") => call<{ id: string; capture_scenario: { title: string; resident: string; facts: string[]; note: string } }>("/session", { mode }),
-  cases: () => call<{ capture: { title: string; resident: string; facts: string[]; note: string }; teach: { id: string; title: string }[] }>("/cases"),
+  session: (mode: "capture" | "teach") => call<{ id: string; capture_scenario: Scenario }>("/session", { mode }),
+  cases: () => call<{ capture: Scenario; teach: { id: string; title: string }[] }>("/cases"),
   event: (e: { field: string; value?: unknown; delta?: unknown; form?: unknown }) => call<{ event: SandboxEvent; scope?: { escalate: boolean; reason: string } }>("/events", e),
   review: (rule_id: string, decision: "confirm" | "reject" | "reset", note = "") => call<{ rule_id: string; decision: string; map_version: string }>("/review", { rule_id, decision, note }),
   learned: () => call<LearnedMap>("/learned"),

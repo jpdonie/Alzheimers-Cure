@@ -14,11 +14,11 @@ from .ingest import Unit, load_units
 DATA = Path(__file__).resolve().parent.parent / "data"
 RAW, LEARNED, REPORT = DATA / "learner_raw.json", DATA / "learned_map.json", DATA / "learner_report.json"
 KINDS = {"decision_rule", "escalation_rule", "principle", "process", "measurement", "other"}
-FIELDS = {"incident_type": {"refusal_of_care", "exit_seeking", "medication_request", "other"},
-          "checks": {"pain", "footwear_skin", "hunger_thirst", "hearing_vision_aids", "noise_environment", "toileting"},
+FIELDS = {"incident_type": {"refusal_of_care", "exit_seeking", "wandering", "medication_request", "other"},
+          "checks": {"pain", "footwear_skin", "hunger_thirst", "hearing_vision_aids", "noise_environment", "toileting", "signage_routine"},
           "pattern": {"new", "habitual", "unsure"},
-          "intervention": {"no_action", "retry_later_same_carer", "swap_carer_or_call_psychologist", "reassure_and_note", "give_prn_medication", "adjust_diet", "integration_plan_review"},
-          "escalate_to": {"none", "nurse", "psychologist", "team_meeting", "coordinating_physician"}, "occurrences_today": None}
+          "intervention": {"no_action", "retry_later_same_carer", "swap_carer_or_call_psychologist", "reassure_and_note", "give_prn_medication", "request_antipsychotic", "adjust_diet", "integration_plan_review", "prompted_toileting", "restore_signage", "add_activities"},
+          "escalate_to": {"none", "nurse", "psychologist", "team_meeting", "coordinating_physician"}, "occurrences_today": None, "months_in_residence": None}
 OPS = {"eq", "neq", "in", "not_in", "contains", "not_contains", "gte", "lt"}
 
 SYSTEM = f"""You are an apprentice learning from interviews with experts in psychologist-led, non-drug dementia care in nursing homes.

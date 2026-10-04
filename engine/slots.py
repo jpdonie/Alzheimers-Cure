@@ -48,15 +48,28 @@ def rung(rule: dict, slot: str, asked: list[dict]) -> int:
     return sum(1 for a in asked if a["rule_id"] == rule["id"] and a["slot"] == slot)
 
 
+def watches(rule: dict, field: str | None, value) -> bool:
+    """True when what the expert just did is something this rule is about: a value in its predicate or in its `watch` list."""
+    vals = value if isinstance(value, list) else [value]
+    for c in rule["predicate"]["all"]:
+        if c["field"] == field and any(v in (c["value"] if isinstance(c["value"], list) else [c["value"]]) for v in vals):
+            return True
+    return any(v in rule.get("watch", {}).get(field, []) for v in vals)
+
+
 def candidates(rules: list[dict], asked: list[dict], event_field: str | None = None, touched: set | None = None,
-               guardrail_asked: bool = False) -> list[dict]:
+               guardrail_asked: bool = False, incident: str | None = None, event_value=None) -> list[dict]:
     out = []
     for r in rules:
         if r.get("learned"):          # learned cards are reviewed in the Map and warn in Teach; they never add live questions
             continue
+        if incident and r.get("applies_to") and incident not in r["applies_to"]:
+            continue                  # e.g. the refusal rules do not compete for a question about a wandering incident
         rel = None
         if event_field is not None:
             rel = 1.0 if event_field in r["triggers"] else None   # live: must be about the visible event
+            if rel and event_value is not None and watches(r, event_field, event_value):
+                rel = 1.8                                          # prefer the rule that is actually about what the expert just did
         else:
             rel = 0.8 if (touched is None or r["id"] in touched) else 0.5  # debrief
         if rel is None:

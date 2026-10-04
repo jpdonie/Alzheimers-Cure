@@ -46,6 +46,9 @@ def build(session) -> dict:
     reviews = session.reviews
 
     def unit_node(uid):
+        if uid == "MICRO-CASE-WANDERING":      # the startup team's composite case, drawn as its own kind of evidence
+            return node(f"unit:{uid}", "unit", "Composite case", detail={"unit": uid, "session": "COMPOSITE", "source_type": "Composite case (startup team, invented details)",
+                                                                       "subtopic": "Afternoon wandering micro case: not an interview", "branches": []})
         u = units.get(uid)
         return node(f"unit:{uid}", "unit", f"{uid}", detail={"unit": uid, "session": u.session if u else "", "subtopic": u.subtopic if u else "", "source_type": u.source_type if u else "",
                                                          "branches": u.branches[:3] if u else []})
@@ -103,7 +106,7 @@ def build(session) -> dict:
             for a, b in zip(seq, seq[1:]):
                 edge(route_node(a), route_node(b), "then", "then")
         for s in r["sources"]:                                                  # interview evidence
-            uid = unit_node(s["unit_id"]); edge(rid, uid, "cites", "verbatim" if s["kind"] == "verbatim" else "dataset summary")
+            uid = unit_node(s["unit_id"]); edge(rid, uid, "cites", {"verbatim": "verbatim", "composite": "composite case"}.get(s["kind"], "dataset summary"))
             nodes[uid]["detail"].setdefault("quotes", [])
             if s["kind"] == "verbatim" and s["quote_span"] not in nodes[uid]["detail"]["quotes"]:
                 nodes[uid]["detail"]["quotes"].append(s["quote_span"])

@@ -2,8 +2,8 @@
 
 
 def facets(rule: dict, live_support: int, teach_back: str, reviewed: str = "") -> dict:
-    sessions = {s["session"] for s in rule["sources"]}
-    kinds = {s["source_type"] for s in rule["sources"]}
+    sessions = {s["session"] for s in rule["sources"] if s["kind"] != "composite"}   # a composite case is not an independent interview session
+    kinds = {s["source_type"] for s in rule["sources"] if s["kind"] != "composite"}
     n = len(sessions) + (1 if live_support else 0)
     ev = "strong" if n >= 3 else "corroborated" if n == 2 else "single-source"
     cls = "expert statements" if kinds <= {"Expert statement"} else "expert statements + corrections"

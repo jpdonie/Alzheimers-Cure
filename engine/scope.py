@@ -13,4 +13,4 @@ def classify(text: str) -> dict:
 
 HUMAN_ROUTES = ("nurse", "coordinating_physician", "team_meeting")   # a person with clinical authority is reached
 
-COVERED_INCIDENTS = ("refusal_of_care", "exit_seeking")   # incident types the learned rules actually address
+COVERED_INCIDENTS = ("refusal_of_care", "exit_seeking", "wandering")   # incident types the learned rules actually address

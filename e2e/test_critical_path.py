@@ -25,31 +25,38 @@ def test_capture_debrief_map_teach():
         page = b.new_context(viewport={"width": 1400, "height": 1000}).new_page()
         page.goto(f"{WEB}/capture"); page.get_by_text("Your task (fake data)").wait_for()
 
+        # the micro case record is on screen, and its answer is not
+        assert page.get_by_text("Day 6, 15:50").count() == 1 and page.get_by_text("sundowning", exact=False).count() >= 1
+        assert page.get_by_text("looking for the toilet", exact=False).count() == 0
+
         # silence while the expert is typing: no question may appear
         obs = page.get_by_label("What you observed (facts only)")
         for _ in range(8):
-            obs.type("refuses tray ", delay=150); page.wait_for_timeout(250)
+            obs.type("pacing the east corridor, trying doors ", delay=150); page.wait_for_timeout(250)
         assert page.locator("[role=status]").count() == 0
+        page.get_by_label("Incident type").select_option("wandering")
 
-        # three screen-grounded questions at natural pauses
-        page.get_by_label("Pain / physical discomfort").check()
-        q1 = wait_question(page); assert "I saw you ticked 'pain'" in q1
-        answer(page, "Pain first, but if she cannot tell me and seems frightened I call the nurse before anything else.")
-        page.get_by_label("Intervention").select_option("give_prn_medication")
-        q2 = wait_question(page); assert "I saw you set the intervention" in q2
-        answer(page, "I would never decide that myself; it always goes to the nurse.")
-        page.get_by_label("Escalate to").select_option("nurse")
-        q3 = wait_question(page)
-        answer(page, "The nurse takes it to the coordinating physician.")
+        # three screen-grounded questions at natural pauses, about what the expert just did
+        page.get_by_role("checkbox", name="Toileting").check()
+        q1 = wait_question(page); assert "I saw you ticked 'toileting'" in q1
+        answer(page, "Toileting first: the episodes start after the drinks round and he was calm after the bathroom. If he cannot tell me I ask the nurse.")
+        page.get_by_role("checkbox", name="Signage, routine, schedule changes").check()
+        q2 = wait_question(page); assert "I saw you ticked 'signage routine'" in q2
+        answer(page, "The plaques were taken down the same week it began, so I check what changed in the building and the schedule.")
+        page.get_by_label("Intervention").select_option("prompted_toileting")
+        q3 = wait_question(page); assert "I saw you set the intervention to 'prompt toileting'" in q3
+        answer(page, "Never medication first. If toileting does not settle it, it goes to the nurse and the team meeting.")
         assert re.search(r"Questions asked: [3-9]", page.get_by_text("Questions asked").inner_text())
         assert page.get_by_text("guardrail:", exact=False).count() >= 1
 
         # debrief: three new questions + teach-back
         page.get_by_role("link", name="Task finished → Debrief").click()
         page.get_by_text("what I am still unsure about").wait_for()
-        for _ in range(3):
+        for i in range(3):
             page.get_by_placeholder("Answer by voice, or type").fill("It depends on the resident; when unsure I ask the nurse.")
-            page.get_by_role("button", name="Send answer").click(); page.wait_for_timeout(700)
+            page.get_by_role("button", name="Send answer").click()
+            expect(page.locator("ul.mt-2.text-sm > li")).to_have_count(i + 1, timeout=10000)
+        expect(page.get_by_role("button", name="Explain the process back to me")).to_be_enabled(timeout=10000)
         page.get_by_role("button", name="Explain the process back to me").click()
         page.get_by_role("button", name="Yes, that is it").first.wait_for()
         n_steps = page.get_by_role("button", name="Yes, that is it").count()
@@ -70,7 +77,7 @@ def test_capture_debrief_map_teach():
         # map
         page.get_by_role("link", name="See the Work Map →").click()
         page.get_by_text("In the expert's words (live)").wait_for()
-        assert page.get_by_text("Pain first").count() >= 1
+        assert page.get_by_text("Toileting first").count() >= 1
         page.get_by_text("Provenance").first.click()
         assert page.get_by_text("transcript").count() >= 1
 
@@ -78,7 +85,8 @@ def test_capture_debrief_map_teach():
         page.goto(f"{WEB}/graph"); page.get_by_text("nodes,", exact=False).wait_for(timeout=20000)
         assert page.get_by_text("independently re-derived", exact=False).count() == 1
         page.get_by_placeholder("Search: pain, nurse, KU-S13-20…").fill("somatic"); page.wait_for_timeout(500)
-        page.goto(f"{WEB}/teach"); page.get_by_text("Predict:").wait_for()
+        page.goto(f"{WEB}/teach"); page.get_by_text("Step 1 · Predict before editing").wait_for()
+        page.get_by_role("button", name=re.compile("T1:")).click()
         # teach: predict, blocked before save with inspectable predicate, retry succeeds
         page.get_by_role("button", name=re.compile(r"^A\. Note")).click()
         page.get_by_role("button", name="Save record").click()
@@ -112,4 +120,16 @@ def test_capture_debrief_map_teach():
         page.get_by_role("button", name="Save record").click()
         page.get_by_text("guardrail R4-treatment-routing").wait_for()
         assert page.get_by_text("dataset summary, not a quotation").count() >= 1
+        page.get_by_role("button", name="Fix it").click()
+
+        # T4: the wandering transfer case. "It is sundowning, ask for an antipsychotic" is stopped for the right reasons,
+        # and evidence taken from the startup team's composite case is labelled as such, never as an interview quote
+        page.get_by_role("button", name=re.compile("T4:")).click()
+        page.get_by_text("Afternoon pacing at the corridor doors").first.wait_for()
+        page.get_by_role("button", name=re.compile(r"^A\. Record it as sundowning")).click()
+        page.get_by_label("Intervention").select_option("request_antipsychotic")
+        page.get_by_role("button", name="Save record").click()
+        page.get_by_text("guardrail R7-wandering-basic-needs").wait_for()
+        page.get_by_text("guardrail R4-treatment-routing").wait_for()
+        assert page.get_by_text("composite case, invented details").count() >= 1
         b.close()

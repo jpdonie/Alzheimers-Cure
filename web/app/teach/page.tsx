@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, explain, type Block, type Form } from "@/lib/engine";
 import { CareRecordSandbox, EMPTY } from "@/components/CareRecordSandbox";
 import { useVoiceAgent } from "@/lib/voice";
@@ -8,10 +8,16 @@ type Case = Awaited<ReturnType<typeof api.teachOpen>>;
 type Result = Awaited<ReturnType<typeof api.checkSave>>;
 
 function Intercept({ blocks, onClose }: { blocks: Block[]; onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    if (dialog && !dialog.open) dialog.showModal();
+    return () => { if (dialog?.open) dialog.close(); };
+  }, []);
+  const close = () => { ref.current?.close(); onClose(); };
   return (
-    <div className="fixed inset-0 z-10 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal>
-      <div className="max-h-[90vh] w-full max-w-3xl space-y-3 overflow-auto rounded-2xl border-2 border-coral bg-white p-5">
-        <h3 className="text-xl font-bold text-coral">Hold on: not saved yet</h3>
+    <dialog ref={ref} aria-labelledby="intercept-title" onCancel={(e) => { e.preventDefault(); close(); }} className="m-auto max-h-[90vh] w-[min(48rem,calc(100%-2rem))] space-y-3 overflow-auto rounded-2xl border-2 border-coral bg-white p-5 text-ink backdrop:bg-black/40">
+        <h3 id="intercept-title" tabIndex={-1} className="text-xl font-bold text-coral">Hold on: not saved yet</h3>
         {blocks.map((b) => (
           <div key={b.rule_id} className="space-y-2 rounded-lg border border-coral/50 p-3">
             <p className="font-semibold">{b.title}</p>
@@ -22,20 +28,20 @@ function Intercept({ blocks, onClose }: { blocks: Block[]; onClose: () => void }
             <p className="font-mono text-xs">predicate: {b.text}</p>
             {b.explain.expert_words.map((w, i) => (
               <blockquote key={i} className="quote">“{w.quote}” <span className="text-xs">({w.kind === "screen" ? "expert, live" : `transcript ${w.unit_id}, verbatim`})</span></blockquote>))}
+            {(b.explain.composite_cases ?? []).map((c, i) => <p key={i} className="text-sm"><span className="chip border-amber">composite case, invented details</span> <i>{c.quote}</i></p>)}
             {b.explain.dataset_summaries.map((d, i) => <p key={i} className="text-sm"><span className="chip">dataset summary, not a quotation</span> {d.summary} ({d.unit_id})</p>)}
             {b.explain.screen_moment
               ? <div><p className="text-sm font-semibold">Replay: the expert&apos;s screen moment ({b.explain.screen_moment.ts.toFixed(0)}s)</p><img src={api.frameUrl(b.explain.screen_moment.event_id)} alt="Expert screen moment" className="max-h-48 rounded border" onError={(e) => ((e.target as HTMLElement).style.display = "none")} /></div>
               : <p className="text-sm text-ink/70">No live screen moment yet for this rule: the evidence is from transcripts.</p>}
           </div>))}
-        <button className="btn btn-primary" onClick={onClose}>Fix it</button>
-      </div>
-    </div>
+        <button className="btn btn-primary" onClick={close}>Fix it</button>
+    </dialog>
   );
 }
 
 export default function Teach() {
   const [cases, setCases] = useState<{ id: string; title: string }[]>([]);
-  const [caseId, setCaseId] = useState("T1");
+  const [caseId, setCaseId] = useState("T4");
   const [c, setC] = useState<Case | null>(null);
   const [form, setForm] = useState<Form>(EMPTY);
   const [picked, setPicked] = useState<string>("");
@@ -51,7 +57,7 @@ export default function Teach() {
     const b = await api.brief(id); voice.context(`The learner is on case ${x.title}. Expert reasoning for this case:\n${b.brief}`);
     voice.tell("SAY", `New case: ${x.title}. Before you touch the record, what would you do next?`);
   }, [voice]);
-  useEffect(() => { api.session("teach").then(() => api.cases()).then((x) => { setCases(x.teach); return open("T1"); }).catch((e) => setErr(explain(e))); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { api.session("teach").then(() => api.cases()).then((x) => { setCases(x.teach); return open("T4"); }).catch((e) => setErr(explain(e))); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const choose = async (k: string) => {
     setPicked(k);
@@ -67,6 +73,10 @@ export default function Teach() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-5">
+      <header className="card flex flex-wrap items-center justify-between gap-3 border-teal/30 bg-sage/50 lg:col-span-5">
+        <div><p className="text-xs font-semibold uppercase tracking-wide text-teal">Module 3 · Teach</p><h1 className="text-xl font-bold">New hire transfer test</h1><p className="text-sm">Predict first, work the unseen case, then try to save. The tutor intervenes only if a frozen Work Map guardrail matches.</p></div>
+        <div className="flex gap-1 text-xs"><span className="chip bg-teal text-white">1 Predict</span><span className="chip">2 Document</span><span className="chip">3 Save &amp; reflect</span></div>
+      </header>
       {err && <p className="text-coral">{err}</p>}
       <section className="space-y-3 lg:col-span-3">
         {c && <CareRecordSandbox resident={c.resident} facts={c.facts} form={form} lockedType onChange={(n) => setForm(n)} onSave={() => (picked ? save() : setErr("Make your prediction first (right panel), then save."))} saveLabel="Save record" />}
@@ -75,10 +85,12 @@ export default function Teach() {
         <div className="card space-y-2">
           <div className="flex items-center justify-between"><h2 className="text-lg font-bold">Tutor {c && <span className="chip ml-1 text-xs" title="Same Work Map artifact the expert confirmed">map {c.map_version}</span>}</h2>
             <button className="btn btn-primary" onClick={voice.start} disabled={voice.connected}>{voice.connected ? "Voice connected" : "Start voice"}</button></div>
-          <div className="flex flex-wrap gap-1">{cases.map((x) => <button key={x.id} className={`chip ${x.id === caseId ? "bg-teal text-white" : ""}`} onClick={() => open(x.id)}>{x.id}: {x.title}</button>)}</div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink/60">Demo scenario: transfer, not replay</p>
+          <div className="flex flex-wrap gap-1">{cases.map((x) => <button key={x.id} className={`chip ${x.id === caseId ? "bg-teal text-white" : ""}`} onClick={() => open(x.id)}>{x.id === "T4" ? "Recommended · " : ""}{x.id}: {x.title}</button>)}</div>
           {c && !c.map_confirmed && <p className="rounded-lg border border-amber bg-amber/20 p-2 text-sm">Teaching from the transcript-seeded map: the expert has not confirmed it by teach-back in this session.</p>}
           {c && <div className="rounded-lg bg-sage p-3">
-            <p className="font-semibold">Predict: {c.predict.question}</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-teal">Step 1 · Predict before editing</p>
+            <p className="font-semibold">{c.predict.question}</p>
             {Object.entries(c.predict.options).map(([k, v]) => (
               <button key={k} disabled={!!picked} onClick={() => choose(k)} className={`mt-1 block w-full rounded-lg border p-2 text-left ${picked === k ? (pred?.correct ? "border-teal bg-teal/10" : "border-coral bg-coral/10") : "border-line bg-white"}`}>{k.toUpperCase()}. {v}</button>))}
             {pred && <p className="mt-1 text-sm">{pred.correct === null ? "Prediction already recorded for this case." : pred.correct ? "That matches the expert." : "Not what the expert would do. Try the record, I will stop you before it is saved."}</p>}

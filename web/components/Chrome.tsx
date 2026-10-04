@@ -4,7 +4,9 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/engine";
 
-const STEPS = [["/capture", "Capture"], ["/debrief", "Debrief"], ["/map", "Work Map"], ["/graph", "Graph"], ["/teach", "Teach"]];
+// The brief has three modules. Debrief is an explicit phase inside Map; the
+// evidence graph is a technical view of the Work Map, not a fifth workflow step.
+const STEPS = [["/capture", "Capture"], ["/debrief", "Map · Debrief"], ["/map", "Map · Work Map"], ["/teach", "Teach"]];
 
 function EngineBadge() {
   const [h, setH] = useState<{ degraded: boolean; usage: { calls: number; est_usd: number } } | null | "down">(null);
