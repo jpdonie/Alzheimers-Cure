@@ -1,3 +1,5 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Night Shift Apprentice</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
@@ -171,10 +173,27 @@ main{max-width:80rem;width:100%;margin:0 auto;padding-inline:1rem;padding-block:
 .metric .v{font-size:1.5rem;font-weight:700;color:var(--teal);font-variant-numeric:tabular-nums;line-height:1.2}
 .metric .l{font-size:.8rem;color:var(--muted)}
 
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.5rem}
+@media (max-width:700px){.tiles{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.rtable{width:100%;border-collapse:collapse;font-size:.9rem}
+.rtable th{text-align:left;font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:.3rem .3rem;border-bottom:1px solid var(--line)}
+.rtable td{padding:.35rem .3rem;border-bottom:1px solid var(--line);vertical-align:top}
+.rtable .ok{color:var(--teal);font-weight:700} .rtable .no{color:var(--coral);font-weight:700}
+.tablewrap{overflow-x:auto;margin-top:.8rem}
+.bars{display:flex;flex-direction:column;gap:.4rem}
+.bar{display:grid;grid-template-columns:8.5rem minmax(0,1fr) 1.5rem;gap:.5rem;align-items:center;font-size:.9rem}
+.bar .track{height:.7rem;background:var(--sage);border-radius:999px;overflow:hidden}
+.bar .fill{height:100%;background:var(--coral);border-radius:999px}
+.bar .n{font-variant-numeric:tabular-nums;text-align:right;font-weight:700}
+.loop{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.35rem}
+.loop li{display:grid;grid-template-columns:1.2rem minmax(0,1fr);gap:.3rem;font-size:.92rem}
+.loop li::before{content:"↺";color:var(--teal);font-weight:700}
+.banner{border:1px solid var(--amber);background:var(--amber-soft);border-radius:.8rem;padding:.5rem .8rem;margin-bottom:.6rem;font-size:.92rem}
 footer{margin-top:auto;border-top:1px solid var(--line);background:var(--sage);padding:.5rem 1rem;text-align:center;font-size:.85rem}
 [hidden]{display:none!important}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 </style>
+</head><body>
 
 <header class="nav">
   <div class="nav-in">
@@ -184,6 +203,7 @@ footer{margin-top:auto;border-top:1px solid var(--line);background:var(--sage);p
       <button class="tab" role="tab" data-tab="2" aria-selected="false">2. Map</button>
       <button class="tab" role="tab" data-tab="3" aria-selected="false">3. Teach</button>
       <button class="tab" role="tab" data-tab="4" aria-selected="false">4. Real life</button>
+      <button class="tab" role="tab" data-tab="5" aria-selected="false">5. Results</button>
     </nav>
     <div class="nav-right">
       <div class="seg" role="group" aria-label="Language">
@@ -248,7 +268,8 @@ footer{margin-top:auto;border-top:1px solid var(--line);background:var(--sage);p
     </div>
     <div class="grid" id="map" hidden>
       <section class="card" aria-label="Work Map">
-        <h2>Work Map · night shift</h2>
+        <h2>Work Map · night shift · <span id="map-ver">v0.1</span></h2>
+        <div class="banner" id="map-banner" hidden></div>
         <div class="chart" id="chart"></div>
       </section>
       <aside class="card" aria-label="Step">
@@ -303,6 +324,19 @@ footer{margin-top:auto;border-top:1px solid var(--line);background:var(--sage);p
       <div class="ap-state"><div class="orb" id="orb4">AI</div><div><b>AI Apprentice</b><span class="hint">On the line</span></div></div>
       <div class="ap-block"><h3>Guardrails</h3><table class="gtable" id="r-gtable"></table></div>
       <div class="ap-block"><h3>Decision path</h3><ul class="path" id="r-path"></ul></div>
+    </aside>
+  </div>
+
+  <!-- 5. Results -->
+  <div class="grid" id="tab5" hidden>
+    <section class="card" aria-label="Results">
+      <div class="tiles" id="tiles"></div>
+      <div class="tablewrap"><table class="rtable" id="rtable"></table></div>
+    </section>
+    <aside class="card" aria-label="Next">
+      <h3>Where help was needed</h3>
+      <div class="bars" id="bars" style="margin-top:.5rem"></div>
+      <div class="ap-block"><h3>Back to step 4 · Work Map v0.2</h3><ul class="loop" id="loop"></ul></div>
     </aside>
   </div>
 </main>
@@ -421,10 +455,10 @@ const JUDGE_SCRIPT=[[0,0],[0,1],[1,1],[2,0],[2,1],[3,1]];
 
 /* ---------- real life: Resident A from the night protocol book ---------- */
 const REAL=[
- {clock:"02:40",choice:"“She's wet, it has to be done now. I'll insist.”",ok:false,verdict:"Stopped before saving · G1",guard:"G1",path:[["D1","Yes","stop"]],line:"s1",book:"Matches night book PR-REFUS v2.1, steps 1–2."},
- {clock:"02:45",choice:"“Write: difficult and uncooperative tonight.”",ok:false,verdict:"Caught before saving · pain and room not checked",guard:"G4",path:[["D1","No","pass"],["D2","No","pass"],["D3","not checked","stop"],["D4","not checked","stop"]],line:"s2"},
+ {clock:"02:40",choice:"“She's wet, it has to be done now. I'll insist.”",ok:false,verdict:"Stopped before saving · G1",guard:"G1",path:[["D1","Yes","stop"]],area:"G1",line:"s1",book:"Matches night book PR-REFUS v2.1, steps 1–2."},
+ {clock:"02:45",choice:"“Write: difficult and uncooperative tonight.”",ok:false,verdict:"Caught before saving · pain and room not checked",guard:"G4",path:[["D1","No","pass"],["D2","No","pass"],["D3","not checked","stop"],["D4","not checked","stop"]],area:"PR",line:"s2"},
  {clock:"02:50",choice:"“Her chart shows refusals most nights. I'll keep the strategy and note it for the care-plan review.”",ok:true,verdict:"Matches the Work Map",guard:"G3",path:[["D1","No","pass"],["D2","No","pass"],["D3","No","pass"],["D4","No","pass"],["D5","Yes","pass"],["A4","","pass"]],line:"s3"},
- {clock:"03:15",choice:"“Second try with a colleague worked. Nothing to note.”",ok:false,verdict:"Caught before saving · G4",guard:"G4",path:[["W","","stop"]],line:"s4"}
+ {clock:"03:15",choice:"“Second try with a colleague worked. Nothing to note.”",ok:false,verdict:"Caught before saving · G4",guard:"G4",path:[["W","","stop"]],area:"G4",line:"s4"}
 ];
 const DRAFT=[
  ["Don't force care. Step back; try later, with a colleague.","S03 · 01:18:48"],
@@ -437,7 +471,7 @@ const DRAFT=[
 
 /* ---------- state ---------- */
 let lang="both", voiceOn=false, tab=1, stepIdx=-1, runId=0, running=null, abortR=null, abortP=null, waitConfirm=null;
-let flagsShown=[], judge={i:0,picked:{},caught:0,first:0,miss:{},tries:{}}, selNode="D1";
+let flagsShown=[], judge={i:0,caught:0,first:0,miss:{},tries:{},log:[]}, realLog=[], selNode="D1";
 const pick=l=>lang==="fr"?l.fr:l.en;
 
 /* ---------- voice: ElevenLabs file if present, else browser voice ---------- */
@@ -480,13 +514,14 @@ const HEAD={
  1:{l:["Ps","var(--teal)","var(--white)","Psychologist","FR","Expert · teaching"],r:["CA","var(--amber)","var(--ink)","Care assistant","EN","ASG · new hire"],k:"Capture · live training",t:"Night shift",subjects:true},
  2:{l:["Ps","var(--teal)","var(--white)","Psychologist","FR","Expert"],r:["AI","var(--teal)","var(--white)","AI Apprentice","EN","Debrief"],k:"Map",t:"Night shift · Work Map"},
  3:{l:["J","var(--ink)","var(--white)","Judge","EN","Plays a new hire"],r:["AI","var(--teal)","var(--white)","Tutor","EN","AI Apprentice"],k:"Teach",t:"A case the expert never showed"},
- 4:{l:["CA","var(--amber)","var(--ink)","Care assistant","EN","ASG · night, unit 2"],r:["AI","var(--teal)","var(--white)","AI Apprentice","EN","On the line"],k:"Real life",t:"Resident A refuses a change"}
+ 4:{l:["CA","var(--amber)","var(--ink)","Care assistant","EN","ASG · night, unit 2"],r:["AI","var(--teal)","var(--white)","AI Apprentice","EN","On the line"],k:"Real life",t:"Resident A refuses a change"},
+ 5:{l:["Ps","var(--teal)","var(--white)","Psychologist","FR","Reviews"],r:["AI","var(--teal)","var(--white)","AI Apprentice","EN","Reports"],k:"Results",t:"One training case, one real night"}
 };
 function talking(side){$("p-left").classList.toggle("talking",side==="l");$("p-right").classList.toggle("talking",side==="r")}
 function showTab(n){
   tab=n; const T=HEAD[n];
   document.querySelectorAll(".tab").forEach(b=>b.setAttribute("aria-selected",String(+b.dataset.tab===n)));
-  [1,2,3,4].forEach(k=>$("tab"+k).hidden=k!==n);
+  [1,2,3,4,5].forEach(k=>$("tab"+k).hidden=k!==n);
   party("left",...T.l); party("right",...T.r);
   $("topic-k").textContent=T.k; $("topic-t").textContent=T.t; $("subjects").hidden=!T.subjects; talking(null);
 }
@@ -584,6 +619,7 @@ async function judgeStep(k,id){
   const step=JUDGE[s], opt=step.opts[o], el=$("j-opts").children[o];
   el.classList.add("picked"); talking("l"); await sleep(700,id); talking(null);
   judge.tries[s]=(judge.tries[s]||0)+1;
+  if(judge.tries[s]===1) judge.log.push({where:"Teach · "+step.clock,first:opt.t,ok:opt.ok,area:opt.ok?null:opt.miss});
   const log=$("j-tutor"); log.querySelector(".none-yet")?.remove(); log.innerHTML="";
   if(!opt.ok){
     judge.caught++; judge.miss[opt.miss]=true; el.classList.remove("picked"); el.classList.add("wrong");
@@ -625,6 +661,7 @@ async function realStep(k,id){
   d.classList.add(s.ok?"ok":"stop");
   d.insertAdjacentHTML("beforeend",`<span class="vt">${esc(s.verdict)}</span><span>${esc(pick(L(s.line)))}</span>${s.book?`<span class="hint">${esc(s.book)}</span>`:""}`);
   renderPath("r-path",s.path); gstate[s.guard]=s.ok?"held":"tested"; renderGuardTable();
+  if(!realLog.some(r=>r.where.endsWith(s.clock))) realLog.push({where:"Real life · "+s.clock,first:s.choice,ok:s.ok,area:s.ok?null:s.area});
   talking("r"); setOrb("orb4",1); await say(L(s.line),id); setOrb("orb4",0); talking(null);
   if(k===REAL.length-1){
     GUARDS.forEach(g=>{if(!gstate[g.id])gstate[g.id]="held"}); renderGuardTable();
@@ -632,13 +669,33 @@ async function realStep(k,id){
   }
 }
 
+const AREAS={G1:"Don't force care",G2:"Medication",G3:"Leaving",PR:"Pain, then room",G4:"Night notes"};
+function showResults(){
+  showTab(5);
+  const rows=[...judge.log,...realLog], caught=rows.filter(r=>!r.ok).length;
+  const tiles=[[`${judge.first}/${JUDGE.length}`,"Teach: right first time"],[String(caught),"Wrong decisions caught before saving"],["0","Guardrails broken in saved records"],[String(Object.keys(FLAGS).length),"Open points for the psychologist"]];
+  $("tiles").innerHTML=tiles.map(([v,l])=>`<div class="metric"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+  $("rtable").innerHTML=`<tr><th>When</th><th>First decision</th><th>Result</th></tr>`+rows.map(r=>`<tr><td class="ts">${esc(r.where)}</td><td>${esc(r.first)}</td><td class="${r.ok?"ok":"no"}">${r.ok?"✓ saved":"✕ caught · "+esc(AREAS[r.area])}</td></tr>`).join("");
+  const count=k=>rows.filter(r=>r.area===k).length, max=Math.max(1,...Object.keys(AREAS).map(count));
+  $("bars").innerHTML=Object.entries(AREAS).map(([k,v])=>`<div class="bar"><span>${esc(v)}</span><span class="track"><span class="fill" style="display:block;width:${count(k)/max*100}%"></span></span><span class="n">${count(k)}</span></div>`).join("");
+  const loop=[...Object.values(FLAGS),"Add a night note template at “Write it down”: caught on the night.","“Don't force care” caught in training and on the night: add the example to G1."];
+  $("loop").innerHTML=loop.map(t=>`<li><span>${esc(t)}</span></li>`).join("");
+  markDone(5);
+}
+function loopBack(){
+  showMap(); $("map-ver").textContent="v0.2 draft";
+  $("map-banner").hidden=false; $("map-banner").textContent=`Back to step 4. ${Object.keys(FLAGS).length} open points and 2 changes from tonight sent to the psychologist for review.`;
+  selNode="W"; renderChart(); renderDetail();
+}
 const STEPS=[
  ...CAP.map(seg=>({tab:1,run:id=>capStep(seg,id)})),
  {tab:2,run:debriefQA},
  {tab:2,run:debriefClose},
  {tab:2,run:async()=>showMap()},
  ...JUDGE_SCRIPT.map((_,k)=>({tab:3,run:id=>judgeStep(k,id)})),
- ...REAL.map((_,k)=>({tab:4,run:id=>realStep(k,id)}))
+ ...REAL.map((_,k)=>({tab:4,run:id=>realStep(k,id)})),
+ {tab:5,run:async()=>showResults()},
+ {tab:5,run:async()=>loopBack()}
 ];
 const firstOf=n=>STEPS.findIndex(s=>s.tab===n);
 
@@ -702,7 +759,8 @@ async function fastTo(target){ // render steps up to target instantly
 }
 function reset(){
   bump(); running=null; waitConfirm=null; stepIdx=-1; flagsShown=[]; gstate={}; selNode="D1";
-  judge={i:0,caught:0,first:0,miss:{},tries:{}};
+  judge={i:0,caught:0,first:0,miss:{},tries:{},log:[]}; realLog=[];
+  $("map-ver").textContent="v0.1"; $("map-banner").hidden=true;
   document.querySelectorAll(".tab").forEach(b=>b.classList.remove("done"));
   $("convo").innerHTML='<p class="empty">Press Next.</p>'; $("dconvo").innerHTML="";
   $("notes").innerHTML='<li class="none-yet">Nothing yet.</li>'; $("qs").innerHTML='<li class="none-yet">Nothing yet.</li>';
@@ -729,3 +787,4 @@ document.querySelectorAll(".seg button").forEach(b=>b.onclick=()=>{
 reset();
 })();
 </script>
+</body></html>
