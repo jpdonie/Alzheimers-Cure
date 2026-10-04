@@ -1,5 +1,5 @@
 """Session state machine: events -> gated questions -> answers -> slot updates -> debrief -> Work Map -> Teach."""
-import json, os, time, uuid
+import json, os, threading, time, uuid
 from copy import deepcopy
 from pathlib import Path
 
@@ -13,6 +13,7 @@ from .privacy import redact
 
 HERE = Path(__file__).resolve().parent
 DATA = HERE.parent / "data"
+FILES = threading.RLock()   # data/session.json and the reviews file are shared by every session
 
 
 def reviews_path() -> Path:
@@ -21,7 +22,8 @@ def reviews_path() -> Path:
 
 def load_reviews() -> dict:
     try:
-        return json.loads(reviews_path().read_text())
+        with FILES:
+            return json.loads(reviews_path().read_text())
     except Exception:
         return {}
 LABEL = {"retry_later_same_carer": "retry later with the same carer", "swap_carer_or_call_psychologist": "swap carer / call the psychologist",
@@ -66,9 +68,15 @@ def describe(ev: dict) -> str:
 
 
 class Session:
+    """Callers hold `lock` around every method, except add_frame, answer and teachback_text:
+    those take it themselves and release it while the model call runs."""
     def __init__(self, mode="capture", drift=None):
         """`drift` is an optional extension adapter (engine.drift); the live path never requires it."""
         self.drift = drift
+        self.lock = threading.RLock()
+        self.frame_seq = {}              # event_id -> number of the latest frame; older vision replies are dropped
+        self.vision_pending = 0          # vision calls in flight, counted against VISION_BUDGET
+        self.answering = set()           # question ids whose extraction is in flight
         self.id = nid("S"); self.mode = mode; self.t0 = time.time()
         self.rules = load_rules(); self.cases = load_cases()
         self.reviews = load_reviews(); self._apply_reviews()
@@ -90,8 +98,10 @@ class Session:
 
     def _save(self):
         try:
-            DATA.mkdir(exist_ok=True)
-            (DATA / "session.json").write_text(json.dumps(self.export(), default=str))
+            body = json.dumps(self.export(), default=str)
+            with FILES:
+                DATA.mkdir(exist_ok=True)
+                (DATA / "session.json").write_text(body)
         except Exception:
             pass
 
@@ -122,20 +132,25 @@ class Session:
         known = any(r["id"] == rule_id for r in self.rules) or (rule_id.startswith("LC-") and learned.card(rule_id) is not None)
         if not known:
             raise Conflict("unknown rule")
-        revs = load_reviews()
-        if decision == "reset":
-            revs.pop(rule_id, None)
-        else:
-            revs[rule_id] = {"decision": decision, "note": redact(note)[0][:600], "ts": self.now(), "at": time.strftime("%Y-%m-%d %H:%M")}
-            if rule_id.startswith("LC-"):       # learned-card ids depend on the merge run, so bind the review to the card's title
-                revs[rule_id]["title"] = (learned.card(rule_id) or {}).get("title", "")
-        reviews_path().parent.mkdir(exist_ok=True); reviews_path().write_text(json.dumps(revs, indent=1))
+        with FILES:   # read-modify-write of a file every session shares
+            revs = load_reviews()
+            if decision == "reset":
+                revs.pop(rule_id, None)
+            else:
+                revs[rule_id] = {"decision": decision, "note": redact(note)[0][:600], "ts": self.now(), "at": time.strftime("%Y-%m-%d %H:%M")}
+                if rule_id.startswith("LC-"):       # learned-card ids depend on the merge run, so bind the review to the card's title
+                    revs[rule_id]["title"] = (learned.card(rule_id) or {}).get("title", "")
+            reviews_path().parent.mkdir(exist_ok=True); reviews_path().write_text(json.dumps(revs, indent=1))
         self.reviews = revs; self._apply_reviews(); self._save()
         return {"rule_id": rule_id, "decision": decision if decision != "reset" else "not reviewed", "map_version": self.map_version()}
 
     def _need_recording(self):
         if not self.recording:
             raise Conflict("off the record: collection is stopped")
+
+    def retire(self):
+        """The registry replaced or evicted this session: model replies still in flight must not write to it."""
+        self.recording = False
 
     def set_recording(self, on: bool) -> dict:
         self.recording = bool(on)
@@ -166,21 +181,34 @@ class Session:
     VISION_BUDGET = 12
 
     def add_frame(self, event_id: str, data_url: str) -> str | None:
-        """Store the cropped frame; a vision model confirms/captions the change for the decision-relevant events only."""
-        self._need_recording()
-        self.frames[event_id] = data_url
-        ev = self.ev(event_id)
-        if not ev or ev.get("field") not in self.VISION_FIELDS or sum(1 for e in self.events if e.get("vision")) >= self.VISION_BUDGET:
-            return None
+        """Store the cropped frame; a vision model confirms/captions the change for the decision-relevant events only.
+        The model runs without the lock; its caption is attached only if this is still the event's latest frame."""
+        with self.lock:
+            self._need_recording()
+            self.frames[event_id] = data_url
+            seq = self.frame_seq[event_id] = self.frame_seq.get(event_id, 0) + 1
+            ev = self.ev(event_id)
+            used = sum(1 for e in self.events if e.get("vision")) + self.vision_pending
+            if not ev or ev.get("field") not in self.VISION_FIELDS or used >= self.VISION_BUDGET:
+                return None
+            prompt = (f"A DOM event reports that the expert {ev['text']}. This is a cropped screenshot of a fake care-records form. "
+                      "In one short sentence start with 'Confirmed:' or 'Not visible:' and say what the relevant field shows. Describe only what is visible; infer nothing clinical.")
+            self.vision_pending += 1
         try:
-            cap = llm.vision(data_url, f"A DOM event reports that the expert {ev['text']}. This is a cropped screenshot of a fake care-records form. "
-                             "In one short sentence start with 'Confirmed:' or 'Not visible:' and say what the relevant field shows. Describe only what is visible; infer nothing clinical.")
+            cap = llm.vision(data_url, prompt)
         except Exception:
-            self.degraded = True
-            return None
-        ev["vision"] = redact(cap)[0]
-        self._save()
-        return ev["vision"]
+            cap = None
+        with self.lock:
+            self.vision_pending -= 1
+            if cap is None:
+                self.degraded = True
+                return None
+            ev = self.ev(event_id)
+            if not self.recording or ev is None or self.frame_seq.get(event_id) != seq:
+                return None   # off the record, deleted, or a newer frame superseded this one
+            ev["vision"] = redact(cap)[0]
+            self._save()
+            return ev["vision"]
 
     def _mk_question(self, rule, slot, rung, ev, qtype=None, text=None, score=0.0, alts=None):
         qtype = qtype or {"rationale": "why", "exceptions": "counterfactual", "guardrails": "guardrail",
@@ -234,7 +262,8 @@ class Session:
         try:
             return llm.complete_json(sys_, user, llm.FAST, 500)
         except Exception:
-            self.degraded = True
+            with self.lock:
+                self.degraded = True
             low = text.lower()
             dk = any(p in low for p in ["don't know", "do not know", "not sure", "no idea"])
             return {"dont_know": dk, "slot_text": text if not dk else "", "exceptions": [text] if q["slot"] == "exceptions" and not dk else [],
@@ -243,14 +272,31 @@ class Session:
                     "threshold": self.drift.extract_threshold(text) if self.drift and rule["id"] == "R3-repeat-escalate" and "time" in low else None}
 
     def answer(self, qid: str, text: str, ts: float | None = None) -> dict:
+        """Claim the question, extract without the lock, then apply only if the question still exists and recording is on."""
+        with self.lock:
+            self._need_recording()
+            q = next(x for x in self.questions if x["id"] == qid)
+            if q["answered"] or qid in self.answering:
+                raise Conflict("question already answered")
+            self.answering.add(qid)
+            ts = ts if ts is not None else self.now()
+            q_snap, rule_snap = deepcopy(q), deepcopy(self.rule(q["rule_id"]))
+        try:
+            clean, nred = redact(text)
+            ex = self._extract(q_snap, rule_snap, clean)
+        finally:
+            with self.lock:
+                self.answering.discard(qid)
+        with self.lock:
+            return self._apply_answer(qid, ts, clean, nred, ex)
+
+    def _apply_answer(self, qid, ts, clean, nred, ex) -> dict:
         self._need_recording()
-        q = next(x for x in self.questions if x["id"] == qid)
-        if q["answered"]:
-            raise Conflict("question already answered")
-        rule = self.rule(q["rule_id"]); ts = ts if ts is not None else self.now()
-        clean, nred = redact(text)
+        q = next((x for x in self.questions if x["id"] == qid), None)
+        if q is None:
+            raise Conflict("question was taken off the record")
+        rule = self.rule(q["rule_id"])
         before = S.snapshot_states([rule])[rule["id"]]
-        ex = self._extract(q, rule, clean)
         prov = {"kind": "screen" if q["event_id"] else "debrief", "event_id": q["event_id"], "ts": ts, "question_id": qid,
                 "quote": clean, "derived_from": [qid], "frame": q["event_id"] in self.frames}
         ans = {"id": nid("A"), "question_id": qid, "ts": ts, "text": clean, "redactions": nred, "extract": ex}
@@ -391,7 +437,8 @@ class Session:
         return sorted(out, key=lambda e: ["transcript", "dataset_summary", "composite_case"].index(e["kind"]))   # verbatim interview words first
 
     def teachback_text(self) -> dict:
-        wm = self.workmap()["steps"]
+        with self.lock:   # snapshot the Work Map; the model call below runs without the lock
+            wm = self.workmap()["steps"]
         base = [f"{s['n']}. {s['title']}. You said: " + (" / ".join(q["text"] for q in s["reason"][:2]) or "(no explanation yet)") +
                 (f" Guardrail: {s['guardrails'][0]['text']}" if s["guardrails"] else "") for s in wm]
         try:
@@ -399,7 +446,8 @@ class Session:
                                "in plain spoken English. One sentence each, then end by asking 'Is that how it works?'.",
                                "\n".join(base), llm.SMART, 500)
         except Exception:
-            self.degraded = True
+            with self.lock:
+                self.degraded = True
             txt = "\n".join(base) + "\nIs that how it works?"
         return {"text": txt, "steps": [{"step_id": s["step_id"], "rule_id": s["rule_id"], "summary": b} for s, b in zip(wm, base)]}
 

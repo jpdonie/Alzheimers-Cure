@@ -1,9 +1,11 @@
 """FastAPI surface for the web app. Run: uvicorn engine.api:app --port 8000"""
-import asyncio, contextvars, copy, json, os
+import contextvars, copy, json, os, threading
 from collections import OrderedDict
+from contextlib import contextmanager
 from pathlib import Path
 import base64
 from fastapi import FastAPI, HTTPException, Response
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Literal
@@ -21,15 +23,13 @@ app.add_middleware(CORSMiddleware, allow_origins=ALLOWED, allow_origin_regex=ORI
 SESSIONS: "OrderedDict[str, Session]" = OrderedDict()   # one Session per browser (X-Session-Id), oldest evicted
 CURRENT = contextvars.ContextVar("sid", default="default")
 MAX_SESSIONS = 20
-LOCK = asyncio.Lock()
+REGISTRY = threading.Lock()   # guards SESSIONS only; each Session's own lock guards its state. Order: REGISTRY, then session.lock.
 
 
 @app.middleware("http")
-async def serialise(request, call_next):
-    sid = (request.headers.get("x-session-id") or request.query_params.get("sid") or "default")[:64]
-    CURRENT.set(sid)
-    async with LOCK:
-        return await call_next(request)
+async def session_id(request, call_next):
+    CURRENT.set((request.headers.get("x-session-id") or request.query_params.get("sid") or "default")[:64])
+    return await call_next(request)
 
 
 @app.exception_handler(Conflict)
@@ -40,11 +40,20 @@ DATA = Path(__file__).resolve().parent.parent / "data"
 
 def S() -> Session:
     sid = CURRENT.get()
-    if sid not in SESSIONS:
-        SESSIONS[sid] = Session("capture")
-        while len(SESSIONS) > MAX_SESSIONS: SESSIONS.popitem(last=False)
-    SESSIONS.move_to_end(sid)
-    return SESSIONS[sid]
+    with REGISTRY:
+        if sid not in SESSIONS:
+            SESSIONS[sid] = Session("capture")
+            while len(SESSIONS) > MAX_SESSIONS: SESSIONS.popitem(last=False)[1].retire()
+        SESSIONS.move_to_end(sid)
+        return SESSIONS[sid]
+
+
+@contextmanager
+def locked():
+    """This browser's session, held for one short critical section. Never call a model inside it."""
+    s = S()
+    with s.lock:
+        yield s
 
 
 class NewSession(BaseModel): mode: Literal["capture", "teach"] = "capture"
@@ -83,107 +92,130 @@ class Rev(BaseModel): rule_id: str = Field(max_length=60); decision: Literal["co
 
 
 @app.get("/health")
-def health(): return {"ok": True, "session": S().id, "degraded": S().degraded, "usage": llm.usage_summary()}
+def health():
+    with locked() as s: out = {"ok": True, "session": s.id, "degraded": s.degraded}
+    return out | {"usage": llm.usage_summary()}
 
 @app.post("/session")
 def new(b: NewSession):
-    if b.mode == "teach":   # keep what the apprentice learned in capture
-        old = S(); s = Session("teach")
-        s.rules, s.teachback, s.frames, s.drift_log = copy.deepcopy(old.rules), dict(old.teachback), dict(old.frames), copy.deepcopy(old.drift_log)
-        s.events, s.questions, s.answers = copy.deepcopy(old.events), copy.deepcopy(old.questions), copy.deepcopy(old.answers)
-        s.freeze()
-        SESSIONS[CURRENT.get()] = s
-    else:
-        SESSIONS[CURRENT.get()] = Session(b.mode)
-    return {"id": S().id, "mode": S().mode, "capture_scenario": S().cases["capture_scenario"]}
+    s, sid = Session(b.mode), CURRENT.get()
+    with REGISTRY:
+        old = SESSIONS.get(sid)
+        if old:
+            with old.lock:
+                if b.mode == "teach":   # keep what the apprentice learned in capture
+                    s.rules, s.teachback, s.frames, s.drift_log = copy.deepcopy(old.rules), dict(old.teachback), dict(old.frames), copy.deepcopy(old.drift_log)
+                    s.events, s.questions, s.answers = copy.deepcopy(old.events), copy.deepcopy(old.questions), copy.deepcopy(old.answers)
+                old.retire()
+        if b.mode == "teach": s.freeze()
+        SESSIONS[sid] = s; SESSIONS.move_to_end(sid)
+        while len(SESSIONS) > MAX_SESSIONS: SESSIONS.popitem(last=False)[1].retire()
+    return {"id": s.id, "mode": s.mode, "capture_scenario": s.cases["capture_scenario"]}
 
 @app.get("/cases")
-def cases(): return {"capture": S().cases["capture_scenario"], "teach": [{"id": c["id"], "title": c["title"], "resident": c["resident"]} for c in S().cases["teach_cases"]]}
+def cases():
+    with locked() as s: return jsonable_encoder({"capture": s.cases["capture_scenario"], "teach": [{"id": c["id"], "title": c["title"], "resident": c["resident"]} for c in s.cases["teach_cases"]]})
 
 @app.post("/events")
 def events(e: Ev):
-    r = S().add_event(e.model_dump())
+    with locked() as s: r = jsonable_encoder(s.add_event(e.model_dump()))
     if e.field == "observation":   # fail-closed clinical language check, visible to the expert while they type
         r["scope"] = scope.classify(str(e.value or ""))
     return r
 
 @app.post("/recording")
-def recording(r: Rec): return S().set_recording(r.on)
+def recording(r: Rec):
+    with locked() as s: return jsonable_encoder(s.set_recording(r.on))
 
 @app.post("/frames")
-def frames(f: Frame): return {"ok": True, "vision": S().add_frame(f.event_id, f.data_url)}
+def frames(f: Frame): return {"ok": True, "vision": S().add_frame(f.event_id, f.data_url)}   # locks itself; vision runs unlocked
 
 @app.get("/frame/{event_id}")
 def frame(event_id: str):
-    d = S().frames.get(event_id)
+    with locked() as s: d = s.frames.get(event_id)
     if not d: raise HTTPException(404, "no frame")
     head, _, b64 = d.partition(",")
     return Response(base64.b64decode(b64), media_type="image/jpeg")
 
 @app.post("/question")
-def question(a: Ask): return S().propose_question(a.event_id, a.signals)
+def question(a: Ask):
+    with locked() as s: return jsonable_encoder(s.propose_question(a.event_id, a.signals))
 
 @app.post("/answer")
 def answer(a: Ans):
-    try: return S().answer(a.question_id, a.text, a.ts)
+    try: return S().answer(a.question_id, a.text, a.ts)   # locks itself; extraction runs unlocked
     except StopIteration: raise HTTPException(404, "unknown question")
 
 @app.post("/debrief/start")
-def debrief_start(): return S().debrief_start()
+def debrief_start():
+    with locked() as s: return jsonable_encoder(s.debrief_start())
 @app.get("/debrief/status")
-def debrief_status(): return S().debrief_status()
+def debrief_status():
+    with locked() as s: return jsonable_encoder(s.debrief_status())
 @app.get("/debrief/teachback")
-def teachback(): return S().teachback_text()
+def teachback(): return S().teachback_text()   # locks itself; the model runs unlocked
 @app.post("/debrief/confirm")
-def confirm(c: Conf): return S().confirm(c.rule_id, c.ok, c.correction)
+def confirm(c: Conf):
+    with locked() as s: return jsonable_encoder(s.confirm(c.rule_id, c.ok, c.correction))
 
 @app.get("/workmap")
-def workmap(): return S().workmap()
+def workmap():
+    with locked() as s: return jsonable_encoder(s.workmap())
 @app.post("/off-record")
-def off(o: Off): return S().off_record(o.since_ts)
+def off(o: Off):
+    with locked() as s: return jsonable_encoder(s.off_record(o.since_ts))
 
 @app.post("/teach/open")
 def t_open(b: dict):
-    try: return S().teach_open(b["case_id"])
+    try:
+        with locked() as s: return jsonable_encoder(s.teach_open(b["case_id"]))
     except (StopIteration, KeyError): raise HTTPException(404, "unknown case")
 @app.post("/teach/predict")
 def t_pred(p: Pred):
-    try: return S().teach_predict(p.case_id, p.option)
+    try:
+        with locked() as s: return jsonable_encoder(s.teach_predict(p.case_id, p.option))
     except StopIteration: raise HTTPException(404, "unknown case")
 @app.post("/teach/check-save")
 def t_save(p: Save):
-    try: return S().teach_check_save(p.case_id, p.form.model_dump())
+    try:
+        with locked() as s: return jsonable_encoder(s.teach_check_save(p.case_id, p.form.model_dump()))
     except StopIteration: raise HTTPException(404, "unknown case")
 @app.get("/mastery")
-def mastery(): return {"rows": S().mastery.summary()}
+def mastery():
+    with locked() as s: return jsonable_encoder({"rows": s.mastery.summary()})
 
 @app.post("/teach/brief")
 def t_brief(b: dict):
     """Expert-reasoning brief for the tutor agent (pushed as a contextual update)."""
-    c = next(x for x in S().cases["teach_cases"] if x["id"] == b["case_id"])
+    with locked() as s:
+        c = next(x for x in s.cases["teach_cases"] if x["id"] == b["case_id"])
+        exs = jsonable_encoder([s._explain(s.rule(rid)) for rid in c["rule_ids"]])
     lines = []
-    for rid in c["rule_ids"]:
-        ex = S()._explain(S().rule(rid))
+    for rid, ex in zip(c["rule_ids"], exs):
         quotes = " | ".join(f"\"{w['quote']}\"" for w in ex["expert_words"])
         notes = " | ".join(d["summary"] for d in ex["dataset_summaries"])
         lines.append(f"Rule {rid}: {ex['title']}. Verbatim expert words: {quotes or 'none'}." + (f" Dataset summary (not a quotation): {notes}." if notes else ""))
     return {"brief": "\n".join(lines)}
 
 @app.post("/review")
-def review(r: Rev): return S().review(r.rule_id, r.decision, r.note)
+def review(r: Rev):
+    with locked() as s: return jsonable_encoder(s.review(r.rule_id, r.decision, r.note))
 
 @app.get("/graph")
-def graph(): return care_graph.build(S())
+def graph():
+    with locked() as s: return jsonable_encoder(care_graph.build(s))
 
 @app.get("/export")
 def export_guardrails():
-    return Response(exporter.build(S().rules, S().teachback, S().map_version()), media_type="text/markdown; charset=utf-8",
+    with locked() as s: body = exporter.build(s.rules, s.teachback, s.map_version())
+    return Response(body, media_type="text/markdown; charset=utf-8",
                     headers={"content-disposition": 'attachment; filename="apprentice-guardrails.md"'})
 
 @app.get("/learned")
 def learned_map():
     """Everything the apprentice learned from all interview units, with each card's review state."""
-    d = learned.load(); revs = S().reviews
+    d = learned.load()
+    with locked() as s: revs = copy.deepcopy(s.reviews)
     rep_path = DATA / "learner_report.json"
     def rv(c):   # a review counts only if it still points at the same card title
         r = revs.get(c["id"], {})
@@ -193,7 +225,8 @@ def learned_map():
             "agenda": d.get("agenda", []), "report": json.loads(rep_path.read_text()) if rep_path.exists() else {}}
 
 @app.get("/rules")
-def rules(): return {"rules": S().rules}
+def rules():
+    with locked() as s: return jsonable_encoder({"rules": s.rules})
 @app.get("/usage")
 def usage(): return llm.usage_summary()
 if "dp" in os.getenv("APPRENTICE_EXTENSIONS", ""):   # deferred extension: never part of the live path
