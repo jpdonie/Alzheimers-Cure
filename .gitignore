@@ -15,3 +15,7 @@ engine/evidence/cache/
 *.docx
 *.pdf
 source-materials/
+
+.env
+vercel.env
+web/.env.production
